@@ -1,0 +1,1837 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>秒答训练</title>
+<script>
+/* ===== 部署时只需要改这一处 =====
+   API_URL：粘贴 Google Apps Script 部署后得到的网址（以 /exec 结尾）。
+   留空 = 预览模式：记录只存在当前浏览器里。 */
+window.APP_CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/AKfycbzzVi5VPj6gPfclaAEAvLFOT0hx8CxvMrnst6hl5vZ2b5gNRlmyCwb2WKDvpaeBVFHGlA/exec'
+};
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600&display=swap">
+<style>
+/* 秒答训练 — 安静的练习界面：题目最大，其余退后。蓝色单色阶贯穿掌握地图与曲线。 */
+:root {
+  color-scheme: light;
+  --bg: #f1f4f7;
+  --surface: #ffffff;
+  --ink: #14202b;
+  --ink-2: #4a5663;
+  --muted: #7b8692;
+  --line: #e0e5eb;
+  --accent: #2a78d6;
+  --accent-ink: #1c5cab;
+  --accent-wash: #e8f1fc;
+  --good: #1b8049;
+  --good-wash: #e6f4eb;
+  --note: #7a5200;
+  --note-wash: #fbf1dc;
+  --grid: #e7eaee;
+  --axis: #c3c8cf;
+  --st-locked: #f4f6f8;
+  --st-unseen: #e6eaef;
+  --st-wrong: #ec835a;
+  --st-wrong-ink: #0b0b0b;
+  --st-slow: #86b6ef;
+  --st-slow-ink: #0b0b0b;
+  --st-near: #2a78d6;
+  --st-near-ink: #ffffff;
+  --st-mastered: #104281;
+  --st-mastered-ink: #ffffff;
+  --font-display: "Lexend", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1215; --surface: #161b20; --ink: #eef1f4; --ink-2: #b8c0c9; --muted: #8a939d;
+    --line: #2a3138; --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
+    --good: #5cc98b; --good-wash: #13281c; --note: #f0c36a; --note-wash: #2b2312;
+    --grid: #242a30; --axis: #3a424a;
+    --st-locked: #191e23; --st-unseen: #232a31;
+    --st-wrong: #d9744d; --st-wrong-ink: #0b0b0b; --st-slow: #184f95; --st-slow-ink: #ffffff;
+    --st-near: #3987e5; --st-near-ink: #0b0b0b; --st-mastered: #86b6ef; --st-mastered-ink: #0b0b0b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1215; --surface: #161b20; --ink: #eef1f4; --ink-2: #b8c0c9; --muted: #8a939d;
+  --line: #2a3138; --accent: #3987e5; --accent-ink: #86b6ef; --accent-wash: #16263a;
+  --good: #5cc98b; --good-wash: #13281c; --note: #f0c36a; --note-wash: #2b2312;
+  --grid: #242a30; --axis: #3a424a;
+  --st-locked: #191e23; --st-unseen: #232a31;
+  --st-wrong: #d9744d; --st-wrong-ink: #0b0b0b; --st-slow: #184f95; --st-slow-ink: #ffffff;
+  --st-near: #3987e5; --st-near-ink: #0b0b0b; --st-mastered: #86b6ef; --st-mastered-ink: #0b0b0b;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.3; }
+h1 { font-size: 26px; font-weight: 650; }
+h2 { font-size: 18px; font-weight: 650; }
+h3 { font-size: 15px; font-weight: 650; }
+.num { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+
+/* ---------- 顶栏 ---------- */
+.top[hidden] { display: none; }
+.top {
+  display: flex; align-items: center; gap: 24px; padding: 14px 24px;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.brand { font-family: var(--font-display); font-weight: 600; font-size: 18px; letter-spacing: 0.02em; }
+.brand small { font-family: var(--font-body); font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 8px; }
+.nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.nav button {
+  border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; cursor: pointer; color: var(--ink-2);
+}
+.nav button:hover { background: var(--bg); }
+.nav button[aria-current="page"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+.nav .sep { width: 1px; background: var(--line); margin: 4px 6px; }
+
+main { max-width: 980px; margin: 0 auto; padding: 28px 20px 64px; display: grid; gap: 28px; }
+
+.banner {
+  background: var(--note-wash); color: var(--note); border-radius: var(--radius); padding: 10px 14px; font-size: 14px;
+}
+.sub { color: var(--ink-2); margin: 6px 0 0; }
+.muted { color: var(--muted); }
+
+/* ---------- 按钮 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  padding: 9px 16px; border-radius: 8px; cursor: pointer; font-weight: 550;
+}
+.btn:hover { border-color: var(--axis); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.06); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--bg); }
+.btn.armed { color: var(--note); background: var(--note-wash); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* ---------- 首页模块卡片 ---------- */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.mod-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px;
+  display: grid; gap: 14px; align-content: start;
+}
+.mod-card header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.mod-card h2 { font-size: 20px; }
+.chip {
+  font-size: 13px; padding: 2px 10px; border-radius: 999px; background: var(--accent-wash); color: var(--accent-ink); white-space: nowrap;
+}
+.meter { height: 8px; border-radius: 999px; background: var(--accent-wash); overflow: hidden; }
+.meter > div { height: 100%; border-radius: 999px; background: var(--accent); }
+.meta { margin: 0; color: var(--ink-2); font-size: 14px; }
+.meta b { font-family: var(--font-display); color: var(--ink); font-weight: 600; font-size: 16px; }
+.mod-card .hint { margin: 0; font-size: 13px; color: var(--muted); }
+.sync { font-size: 13px; color: var(--muted); margin: 0; }
+
+/* ---------- 练习 ---------- */
+.practice { min-height: calc(100vh - 64px); display: grid; grid-template-rows: auto 1fr; }
+.pbar { display: flex; align-items: center; gap: 16px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.pmod { color: var(--ink-2); font-size: 14px; white-space: nowrap; }
+.ptrack { flex: 1; height: 6px; border-radius: 999px; background: var(--accent-wash); overflow: hidden; }
+.pfill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.25s ease; }
+.pcount { font-family: var(--font-display); font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 14px; min-width: 56px; text-align: right; }
+.stage { display: grid; place-content: center; justify-items: center; gap: 22px; padding: 40px 20px 80px; }
+.eq {
+  display: flex; align-items: baseline; gap: 0.35em; font-family: var(--font-display);
+  font-size: clamp(56px, 9vw, 104px); font-weight: 500; line-height: 1.1; font-variant-numeric: tabular-nums;
+}
+.eq sup { font-size: 0.5em; vertical-align: 0.9em; line-height: 0; margin-left: 0.04em; }
+.rad { display: inline-flex; align-items: flex-start; }
+.rad .rsign { font-weight: 400; }
+.rad .rnum { border-top: 0.06em solid currentColor; padding: 0.04em 0.05em 0 0.08em; margin-top: 0.1em; }
+.eqs { color: var(--muted); font-weight: 400; }
+.ans {
+  min-width: 1.6em; padding: 0 0.12em; border-bottom: 0.05em solid var(--axis); text-align: center; color: var(--ink);
+}
+.ans.empty::after { content: ""; display: inline-block; width: 0.05em; height: 0.85em; background: var(--accent); vertical-align: -0.08em; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.eq.is-ok .ans { color: var(--good); border-bottom-color: var(--good); }
+.eq.is-learn .ans { color: var(--accent-ink); border-bottom-color: var(--accent); }
+.fb { min-height: 64px; display: grid; justify-items: center; gap: 6px; text-align: center; }
+.fb-ok { font-size: 22px; font-weight: 600; color: var(--good); background: var(--good-wash); padding: 6px 18px; border-radius: 999px; }
+.fb-learn { font-size: 20px; color: var(--ink); background: var(--accent-wash); padding: 8px 20px; border-radius: 12px; }
+.fb-learn b { font-family: var(--font-display); font-weight: 600; color: var(--accent-ink); margin-left: 4px; }
+.fb-later { font-size: 14px; color: var(--ink-2); }
+.fb-next { font-size: 13px; color: var(--muted); }
+.keyhint { color: var(--muted); font-size: 14px; margin: 0; }
+
+/* ---------- 结果 ---------- */
+.result { display: grid; gap: 22px; }
+.lead { font-size: 17px; color: var(--ink-2); margin: 6px 0 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 2px; }
+.tile .label { font-size: 13px; color: var(--ink-2); }
+.tile .value { font-family: var(--font-display); font-size: 28px; font-weight: 600; line-height: 1.2; }
+.tile .value small { font-size: 15px; font-weight: 400; color: var(--ink-2); margin-left: 2px; }
+.tile .note { font-size: 12px; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.fact-chip { font-family: var(--font-display); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 15px; }
+
+/* ---------- 轨迹 ---------- */
+.seg { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 6px 14px; border-radius: 7px; cursor: pointer; color: var(--ink-2); }
+.seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent-ink); font-weight: 600; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 14px; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.panel-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.chart { margin: 0; display: grid; gap: 8px; position: relative; }
+.chart figcaption { font-size: 14px; font-weight: 600; }
+.chart figcaption span { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 6px; }
+.plot { position: relative; min-height: 210px; }
+.plot svg { display: block; overflow: visible; }
+.plot text { font-family: var(--font-body); font-size: 11px; fill: var(--muted); }
+.plot .endlabel { fill: var(--ink); font-family: var(--font-display); font-size: 12px; font-weight: 600; }
+.plot .reflabel { fill: var(--ink-2); font-size: 11px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.5;
+  box-shadow: 0 6px 20px rgba(10, 20, 30, 0.12); min-width: 140px; display: none;
+}
+.tip .tv { font-family: var(--font-display); font-weight: 600; font-size: 14px; }
+.tip .tl { color: var(--ink-2); }
+.empty-state { text-align: center; padding: 28px 12px; color: var(--ink-2); display: grid; gap: 12px; justify-items: center; }
+
+/* 掌握地图 */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.mapwrap { overflow-x: auto; }
+.grid-mult { display: grid; grid-template-columns: 36px repeat(8, minmax(40px, 52px)); gap: 3px; width: max-content; }
+.gh { display: grid; place-items: center; font-family: var(--font-display); font-size: 13px; color: var(--muted); height: 30px; }
+.cell {
+  height: 40px; border-radius: 6px; display: grid; place-items: center; cursor: default;
+  font-family: var(--font-display); font-size: 14px; font-variant-numeric: tabular-nums; border: 0;
+}
+.cell:hover, .cell:focus-visible { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink-2); outline: none; }
+.st-locked { background: var(--st-locked); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); }
+.st-unseen { background: var(--st-unseen); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+.st-wrong { background: var(--st-wrong); color: var(--st-wrong-ink); }
+.st-slow { background: var(--st-slow); color: var(--st-slow-ink); }
+.st-near { background: var(--st-near); color: var(--st-near-ink); }
+.st-mastered { background: var(--st-mastered); color: var(--st-mastered-ink); }
+.sq-blocks { display: flex; flex-wrap: wrap; gap: 18px 28px; }
+.sq-block { display: grid; gap: 6px; }
+.sq-block h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.grid-sq { display: grid; gap: 3px; width: max-content; }
+.grid-sq .rowlabel { font-size: 12px; color: var(--muted); display: flex; align-items: center; padding-right: 6px; }
+.grid-sq .cell { width: 52px; font-size: 13px; }
+
+/* 表格 */
+.tablewrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--ink-2); font-size: 13px; position: sticky; top: 0; background: var(--surface); }
+td.n { font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+.tag { font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--ink-2); }
+.tag.up { background: var(--good-wash); color: var(--good); }
+.tag.part { background: var(--note-wash); color: var(--note); }
+
+/* 设置表单 */
+.form { display: grid; gap: 16px; max-width: 560px; }
+.field { display: grid; gap: 4px; }
+.field label { font-weight: 600; font-size: 14px; }
+.field .help { font-size: 13px; color: var(--muted); }
+.field input, .field select {
+  font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); width: 200px;
+}
+.saved { color: var(--good); font-size: 14px; }
+.err { color: var(--note); font-size: 14px; }
+textarea.copybox { width: 100%; height: 120px; font-family: ui-monospace, monospace; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+
+@media (max-width: 560px) {
+  .top { padding: 12px 16px; gap: 12px; flex-wrap: wrap; }
+  main { padding: 20px 16px 48px; }
+  .pbar { padding: 12px 16px; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ans.empty::after { animation: none; }
+  .pfill { transition: none; }
+}
+main.is-practice { max-width: none; padding: 0; display: block; }
+
+.goal { margin: 0; font-size: 15px; color: var(--ink); }
+.goal b { font-family: var(--font-display); font-weight: 600; font-size: 17px; color: var(--accent-ink); }
+.fb-yours { font-size: 15px; color: var(--muted); }
+.fact-chip small { font-family: var(--font-body); font-size: 12px; color: var(--ink-2); margin-left: 8px; }
+.fact-chip.stuck-wrong { box-shadow: inset 3px 0 0 var(--st-wrong); }
+.fact-chip.stuck-slow { box-shadow: inset 3px 0 0 var(--st-slow); }
+.fact-chip.stuck-near { box-shadow: inset 3px 0 0 var(--st-near); }
+
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript>这个页面需要开启 JavaScript。</noscript>
+<script>
+/* 事实提取训练 · 练习引擎
+ * 纯逻辑，不碰页面：题库、掌握判定、选题、错题重问、升降级、定级、示例数据模拟。
+ * 新模块（如公式）只需在 MODULES 里登记、在 buildBank 里加题，其余逻辑通用。
+ */
+(function (root) {
+  'use strict';
+
+  var APP_VERSION = '1.2.0';
+
+  var DEFAULT_SETTINGS = {
+    sessionLength: 30,     // 每次题数
+    fastMs: 3000,          // 题目出现后这么多毫秒内开始输入、且答对 = 又快又准
+    timeoutMs: 10000,      // 超时
+    masteryStreak: 3,      // 连续几次又快又准 = 已掌握
+    upFraction: 0.9,       // 当前级掌握比例达到这个就升级（至少允许差 1 题）
+    downAccuracy: 0.7,     // 同一级连续两次正确率低于这个就降级
+    placementPass: 0.8,    // 定级时某一级又快又准比例达到这个算通过
+    reviewShare: 0.3,      // 每次练习里复习已掌握题的比例（每道最多出现一次）
+    newPerSession: 4,      // 每次最多引入几道新题
+    maxActive: 10,         // 同时在学（还没掌握）的题最多几道，超过就先不加新题
+    typingMs: 2000,        // 开始输入后最多再用这么久按回车，才算又快又准（容得下改一位手误）
+    maxRepeats: 3,         // 一次练习里同一道题最多计划出现几次（不含错题重问）
+    maxFamily: 3,          // 同组题（7×8 和 8×7、13² 和 √169）一次练习里合计最多几次
+    maxRetries: 2,         // 一次练习里同一道题最多重问几次
+    levelOverride: {}      // 老师手动调级 { mult: { level: 2, at: ISO } }
+  };
+
+  var MODULES = [
+    {
+      id: 'mult', name: '乘法表', short: '乘法',
+      levels: [
+        { n: 1, label: '2–5 的乘法' },
+        { n: 2, label: '加入 6' },
+        { n: 3, label: '加入 7' },
+        { n: 4, label: '加入 8' },
+        { n: 5, label: '加入 9' }
+      ]
+    },
+    {
+      id: 'sq', name: '平方与根号', short: '平方',
+      levels: [
+        { n: 1, label: '1–10' },
+        { n: 2, label: '11–15' },
+        { n: 3, label: '16–20 和 25' }
+      ]
+    }
+  ];
+
+  function moduleById(id) {
+    for (var i = 0; i < MODULES.length; i++) if (MODULES[i].id === id) return MODULES[i];
+    return null;
+  }
+
+  function buildBank() {
+    var items = [];
+    var a, b;
+    for (a = 2; a <= 9; a++) {
+      for (b = 2; b <= 9; b++) {
+        var m = Math.max(a, b);
+        items.push({
+          id: 'm' + a + 'x' + b, module: 'mult', kind: 'mult',
+          level: m <= 5 ? 1 : m - 4,
+          a: a, b: b,
+          prompt: a + ' × ' + b,
+          answer: String(a * b),
+          family: 'm' + Math.min(a, b) + '-' + m
+        });
+      }
+    }
+    var ns = [];
+    for (var n = 1; n <= 20; n++) ns.push(n);
+    ns.push(25);
+    ns.forEach(function (n) {
+      var level = n <= 10 ? 1 : n <= 15 ? 2 : 3;
+      items.push({ id: 's' + n, module: 'sq', kind: 'square', level: level, n: n,
+        prompt: n + '²', answer: String(n * n), family: 'q' + n });
+      items.push({ id: 'r' + n, module: 'sq', kind: 'root', level: level, n: n,
+        prompt: '√' + (n * n), answer: String(n), family: 'q' + n });
+    });
+    return items;
+  }
+
+  function normalizeSettings(s) {
+    var out = {};
+    var k;
+    for (k in DEFAULT_SETTINGS) out[k] = DEFAULT_SETTINGS[k];
+    if (s) {
+      for (k in s) {
+        if (!(k in DEFAULT_SETTINGS)) continue;
+        if (k === 'levelOverride') out[k] = (s[k] && typeof s[k] === 'object') ? s[k] : {};
+        else if (s[k] !== '' && s[k] !== null && !isNaN(Number(s[k]))) out[k] = Number(s[k]);
+      }
+    }
+    out.sessionLength = clamp(Math.round(out.sessionLength), 5, 100);
+    out.masteryStreak = clamp(Math.round(out.masteryStreak), 1, 10);
+    out.newPerSession = clamp(Math.round(out.newPerSession), 1, 20);
+    return out;
+  }
+
+  function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+  function num(x) { return x === '' || x === null || x === undefined ? null : Number(x); }
+  function flag(x) { return x === true || x === 1 || x === '1' || x === 'TRUE' || x === 'true'; }
+
+  /* 表格读回来的数可能是字符串、TRUE/FALSE，这里统一 */
+  function normalizeTrial(t) {
+    return {
+      trial_id: String(t.trial_id), session_id: String(t.session_id), idx: num(t.idx),
+      ts_iso: String(t.ts_iso), local_time: t.local_time ? String(t.local_time) : '',
+      tz: t.tz ? String(t.tz) : '', module: String(t.module), phase: String(t.phase || 'practice'),
+      level: num(t.level), item_id: String(t.item_id), prompt: t.prompt ? String(t.prompt) : '',
+      answer: t.answer === undefined ? '' : String(t.answer),
+      response: t.response === undefined || t.response === null ? '' : String(t.response),
+      correct: flag(t.correct) ? 1 : 0,
+      rt_first_key_ms: num(t.rt_first_key_ms), rt_submit_ms: num(t.rt_submit_ms),
+      timeout: flag(t.timeout) ? 1 : 0, retry: flag(t.retry) ? 1 : 0
+    };
+  }
+
+  function normalizeSession(s) {
+    return {
+      session_id: String(s.session_id), module: String(s.module), type: String(s.type),
+      complete: flag(s.complete) ? 1 : 0,
+      start_iso: String(s.start_iso || ''), end_iso: String(s.end_iso || ''),
+      local_start: s.local_start ? String(s.local_start) : '', tz: s.tz ? String(s.tz) : '',
+      n_items: num(s.n_items), n_first: num(s.n_first), n_correct: num(s.n_correct), n_fast: num(s.n_fast),
+      accuracy: num(s.accuracy), median_rt_ms: num(s.median_rt_ms),
+      level_before: num(s.level_before), level_after: num(s.level_after),
+      app_version: s.app_version ? String(s.app_version) : ''
+    };
+  }
+
+  /* 判断快慢用"开始输入用时"：打错一位再改不算慢 */
+  function judgedRt(t) {
+    return t.rt_first_key_ms !== null && t.rt_first_key_ms !== undefined && !isNaN(t.rt_first_key_ms)
+      ? t.rt_first_key_ms : t.rt_submit_ms;
+  }
+
+  /* 一次作答的结果：fast 又快又准 / slow 会但慢 / wrong 不会
+   * 又快又准 = 答对 + 3 秒内开始输入最终答案 + 开始后不久就按了回车（默认总共不超过 5 秒）
+   * 打对了但没按回车就超时：算会但慢 */
+  function outcome(t, s) {
+    if (!t.correct) return 'wrong';
+    if (t.timeout) return 'slow';
+    return judgedRt(t) <= s.fastMs && t.rt_submit_ms <= s.fastMs + s.typingMs ? 'fast' : 'slow';
+  }
+
+  function byTimeDesc(x, y) {
+    if (x.ts_iso < y.ts_iso) return 1;
+    if (x.ts_iso > y.ts_iso) return -1;
+    return (y.idx || 0) - (x.idx || 0);
+  }
+
+  function indexAttempts(trials) {
+    var idx = {};
+    trials.forEach(function (t) {
+      if (t.retry) return; // 错题重问是刚看过答案的短时记忆，不算进掌握判定
+      (idx[t.item_id] = idx[t.item_id] || []).push(t);
+    });
+    for (var k in idx) idx[k].sort(byTimeDesc);
+    return idx;
+  }
+
+  /* 每道题的状态：unseen / wrong / slow / near（快了但还不够连续）/ mastered
+   * 定级（placement）和"推定掌握"抽查（check）时又快又准，直接算掌握 */
+  function itemStatus(attempts, s) {
+    if (!attempts || !attempts.length) return { state: 'unseen', fastRun: 0, n: 0, nWrong: 0, lastSeen: null, recent: [] };
+    var fastRun = 0, viaCheck = false;
+    for (var i = 0; i < attempts.length; i++) {
+      if (outcome(attempts[i], s) !== 'fast') break;
+      fastRun++;
+      if (attempts[i].phase === 'placement' || attempts[i].phase === 'check') viaCheck = true;
+    }
+    var mastered = fastRun >= s.masteryStreak || viaCheck;
+    var last = outcome(attempts[0], s);
+    var state = mastered ? 'mastered' : last === 'wrong' ? 'wrong' : last === 'slow' ? 'slow' : 'near';
+    var recent = attempts.slice(0, 3);
+    return {
+      state: state, fastRun: fastRun, n: attempts.length, lastSeen: attempts[0].ts_iso,
+      nWrong: recent.filter(function (t) { return outcome(t, s) === 'wrong'; }).length,
+      recent: recent.map(function (t) {
+        return { outcome: outcome(t, s), rt: judgedRt(t), ts: t.ts_iso, timeout: t.timeout };
+      })
+    };
+  }
+
+  function computeStatuses(items, trials, s) {
+    var idx = indexAttempts(trials);
+    var out = {};
+    items.forEach(function (it) { out[it.id] = itemStatus(idx[it.id], s); });
+    return out;
+  }
+
+  function completeSessions(sessions, moduleId) {
+    return sessions.filter(function (x) { return x.module === moduleId && x.complete; })
+      .sort(function (a, b) { return a.end_iso < b.end_iso ? -1 : a.end_iso > b.end_iso ? 1 : 0; });
+  }
+
+  function currentLevel(moduleId, sessions, s) {
+    var done = completeSessions(sessions, moduleId);
+    var last = done[done.length - 1];
+    var ov = s.levelOverride && s.levelOverride[moduleId];
+    if (ov && ov.level && (!last || String(ov.at) > last.end_iso)) {
+      return { level: Number(ov.level), needsPlacement: false, fromOverride: true };
+    }
+    if (!last) return { level: null, needsPlacement: true };
+    return { level: last.level_after, needsPlacement: false };
+  }
+
+  function maxLevel(moduleId) { return moduleById(moduleId).levels.length; }
+
+  /* 升级需要掌握的题数：90%，但至少允许差 1 题 */
+  function needToLevelUp(bandSize, s) {
+    return bandSize - Math.max(1, Math.floor(bandSize * (1 - s.upFraction) + 1e-9));
+  }
+
+  function levelProgress(moduleId, level, items, statuses, s) {
+    var band = items.filter(function (it) { return it.module === moduleId && it.level === level; });
+    var mastered = band.filter(function (it) { return statuses[it.id].state === 'mastered'; }).length;
+    var need = needToLevelUp(band.length, s);
+    return { band: band.length, mastered: mastered, need: need, remaining: Math.max(0, need - mastered) };
+  }
+
+  /* ---------- 随机工具 ---------- */
+  function shuffle(arr, rng) {
+    var a = arr.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(rng() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  /* 加权抽样：每一轮是一次不放回的加权排列，题不够就再来一轮，最多 maxCycles 轮 */
+  function weightedCycles(pool, count, rng, maxCycles) {
+    var out = [];
+    var cycles = 0;
+    if (!pool.length || count <= 0) return out;
+    while (out.length < count && cycles < maxCycles) {
+      var keyed = pool.map(function (p) { return { p: p, k: Math.pow(rng(), 1 / p.w) }; })
+        .sort(function (x, y) { return y.k - x.k; });
+      for (var i = 0; i < keyed.length && out.length < count; i++) out.push(keyed[i].p);
+      cycles++;
+    }
+    return out;
+  }
+
+  function famOf(e) { return e.item ? e.item.family : e.family; }
+
+  function famNear(arr, i, fam, lo) {
+    for (var d = -2; d <= 2; d++) {
+      if (d === 0) continue;
+      var j = i + d;
+      if (j >= (lo || 0) && j < arr.length && famOf(arr[j]) === fam) return true;
+    }
+    return false;
+  }
+
+  /* 同一组题（7×8 和 8×7、13² 和 √169）至少隔 2 题再出现 */
+  function arrange(list, rng) {
+    var a = shuffle(list, rng);
+    function conflict(arr, i, cand) {
+      var f = famOf(cand);
+      return (i >= 1 && famOf(arr[i - 1]) === f) || (i >= 2 && famOf(arr[i - 2]) === f);
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (!conflict(a, i, a[i])) continue;
+      var fixed = false;
+      for (var j = i + 1; j < a.length; j++) {
+        if (!conflict(a, i, a[j])) { var t = a[i]; a[i] = a[j]; a[j] = t; fixed = true; break; }
+      }
+      if (!fixed) {
+        for (var k = 0; k < i - 2 && !fixed; k++) {
+          var x = a[k], y = a[i];
+          a[k] = y; a[i] = x;
+          if (!famNear(a, k, famOf(y)) && !famNear(a, i, famOf(x))) fixed = true; else { a[k] = x; a[i] = y; }
+        }
+      }
+    }
+    return a;
+  }
+
+  /* ---------- 出题计划 ---------- */
+  function planPlacement(moduleId, items, s, rng) {
+    var mod = moduleById(moduleId);
+    var per = Math.ceil(s.sessionLength / mod.levels.length);
+    var plan = [];
+    mod.levels.forEach(function (lv) {
+      var pool = items.filter(function (it) { return it.module === moduleId && it.level === lv.n; });
+      plan = plan.concat(arrange(shuffle(pool, rng).slice(0, per), rng)); // 由易到难，每级内打乱
+    });
+    return plan.slice(0, s.sessionLength).map(function (it) { return { item: it, retry: false, check: false }; });
+  }
+
+  function reviewWeight(st, nowMs) {
+    var days = st.lastSeen ? (nowMs - Date.parse(st.lastSeen)) / 864e5 : 7;
+    return (1 + Math.min(Math.max(days, 0), 14)) / Math.max(1, st.fastRun); // 越熟出得越少，隔得越久越该复习
+  }
+
+  /* 练习的题分三类：
+   *   在学：见过但还没掌握 → 主要练这些，一组最多出 3 次
+   *   新题：当前级没见过的 → 分批引入，每组最多 newPerSession 道，在学的题太多时先不加
+   *   复习：已掌握的题 + 定级时跳过的低级题（抽查，答得快就直接算掌握）→ 每道最多出 1 次 */
+  /* 定级时又快又准比例达标的级别（这一级没抽到的题，按"推定掌握"抽查） */
+  function placementPassedLevels(moduleId, trials, items, s) {
+    var byId = {}, tally = {}, out = {};
+    items.forEach(function (it) { byId[it.id] = it; });
+    trials.forEach(function (t) {
+      if (t.phase !== 'placement' || t.module !== moduleId || !byId[t.item_id]) return;
+      var lv = byId[t.item_id].level;
+      tally[lv] = tally[lv] || { n: 0, fast: 0 };
+      tally[lv].n++;
+      if (outcome(t, s) === 'fast') tally[lv].fast++;
+    });
+    for (var lv in tally) if (tally[lv].fast / tally[lv].n >= s.placementPass) out[lv] = true;
+    return out;
+  }
+
+  function planPractice(moduleId, level, items, statuses, trials, s, rng, nowMs) {
+    var n = s.sessionLength;
+    var cand = items.filter(function (it) { return it.module === moduleId && it.level <= level; });
+    var passed = placementPassedLevels(moduleId, trials, items, s);
+    var learning = [], fresh = [], review = [];
+    cand.forEach(function (it) {
+      var st = statuses[it.id];
+      if (st.state === 'mastered') review.push({ it: it, w: reviewWeight(st, nowMs), check: false });
+      else if (st.state === 'unseen') {
+        if (it.level < level || passed[it.level]) review.push({ it: it, w: 1.5, check: true });
+        else fresh.push({ it: it, w: 2, check: false });
+      } else {
+        learning.push({ it: it, w: st.state === 'wrong' ? 3 : st.state === 'slow' ? 2 : 1, check: false });
+      }
+    });
+    fresh = shuffle(fresh, rng);
+    var newCount = Math.min(fresh.length, s.newPerSession, Math.max(0, s.maxActive - learning.length));
+    var active = learning.concat(fresh.slice(0, newCount));
+
+    // 依次从几类题里抽，同一道题和同组题都有次数上限
+    var picks = [], itemCnt = {}, famCnt = {};
+    function take(pool, count, itemCap, famCap) {
+      var added = 0;
+      for (var round = 0; round < itemCap && added < count; round++) {
+        var keyed = pool.map(function (p) { return { p: p, k: Math.pow(rng(), 1 / p.w) }; })
+          .sort(function (x, y) { return y.k - x.k; });
+        var progress = false;
+        for (var i = 0; i < keyed.length && added < count; i++) {
+          var e = keyed[i].p, id = e.it.id, f = e.it.family;
+          if ((itemCnt[id] || 0) >= itemCap || (famCnt[f] || 0) >= famCap) continue;
+          itemCnt[id] = (itemCnt[id] || 0) + 1; famCnt[f] = (famCnt[f] || 0) + 1;
+          picks.push(e); added++; progress = true;
+        }
+        if (!progress) break;
+      }
+      return added;
+    }
+    var nR = Math.min(review.length, Math.round(n * s.reviewShare));
+    take(active, n - nR, s.maxRepeats, s.maxFamily);                 // 在学的题和新题
+    take(review, n - picks.length, 1, s.maxFamily);                  // 复习：每道最多一次
+    for (var extra = newCount; picks.length < n && extra < fresh.length; extra++) {
+      take([fresh[extra]], n - picks.length, s.maxRepeats, s.maxFamily); // 还有空位：多引入几道新题
+    }
+    if (picks.length < n) take(review, n - picks.length, 2, s.maxFamily);  // 题库太小：已掌握的再复习一轮
+    if (picks.length < n) {
+      var all = active.concat(review).concat(fresh.slice(newCount));
+      if (!all.length) all = cand.map(function (it) { return { it: it, w: 1 }; });
+      take(all, n - picks.length, s.maxRepeats, Infinity);   // 题库很小（比如只有第一级）时放宽同组上限
+      if (picks.length < n) take(all, n - picks.length, Infinity, Infinity);
+    }
+    return arrange(picks.map(function (p) { return { item: p.it, retry: false, check: !!p.check }; }), rng);
+  }
+
+  /* ---------- 一次练习的运行状态 ---------- */
+  function createRun(moduleId, ctx, rng, nowIso) {
+    var lv = currentLevel(moduleId, ctx.sessions, ctx.settings);
+    var type = lv.needsPlacement ? 'placement' : 'practice';
+    var level = lv.needsPlacement ? null : lv.level;
+    var nowMs = Date.parse(nowIso);
+    var plan = lv.needsPlacement
+      ? planPlacement(moduleId, ctx.items, ctx.settings, rng)
+      : planPractice(moduleId, level, ctx.items, ctx.statuses, ctx.trials || [], ctx.settings, rng, nowMs);
+    return {
+      session_id: makeId(nowIso, rng), module: moduleId, type: type, level_before: level,
+      start_iso: null, plan: plan, idx: 0, trials: [], retriesBy: {}, stoppedEarly: false
+    };
+  }
+
+  function makeId(nowIso, rng) {
+    return nowIso.replace(/[-:TZ.]/g, '').slice(0, 14) + '-' + Math.floor(rng() * 1e6).toString(36);
+  }
+
+  /* 位置 p 放同组题 fam，前后两题内（只看还没做的题）不能有同组题 */
+  function canPlace(plan, p, fam, startIdx, ignore) {
+    for (var d = -2; d <= 2; d++) {
+      var j = p + d;
+      if (d === 0 || j <= startIdx || j >= plan.length || j === ignore) continue;
+      if (plan[j].item.family === fam) return false;
+    }
+    return true;
+  }
+
+  /* 定级：某一级已经确定过不了，就在这一级停下，不再出更难的题 */
+  function placementCheck(run, s) {
+    var L = run.plan[run.idx].item.level;
+    var block = run.plan.filter(function (p) { return p.item.level === L; }).length;
+    var nonFast = run.trials.filter(function (t) { return t.level === L && outcome(t, s) !== 'fast'; }).length;
+    var allowed = Math.floor(block * (1 - s.placementPass) + 1e-9);
+    var next = run.plan[run.idx + 1];
+    var blockDone = !next || next.item.level !== L;
+    // 已经确定过不了，马上停；这一级做完但不是全都又快又准，也停在这一级
+    if ((nonFast > allowed || (blockDone && nonFast > 0)) && run.idx + 1 < run.plan.length) {
+      run.plan.length = run.idx + 1;
+      run.stoppedEarly = true;
+    }
+  }
+
+  /* 记下一题；练习时答错，就在 3–5 题之后再问一次（替换掉那个位置原来的题，总题数和其他重问的位置都不变）。
+   * 返回是否安排了重问 */
+  function recordAnswer(run, trial, rng, s) {
+    run.trials.push(trial);
+    var cur = run.plan[run.idx];
+    var scheduled = false;
+    if (run.type === 'placement') {
+      placementCheck(run, s);
+    } else if (!trial.correct) {
+      var id = cur.item.id, fam = cur.item.family;
+      var used = run.retriesBy[id] || 0;
+      var lo = run.idx + 4, hi = Math.min(run.idx + 6, run.plan.length - 1);
+      if (used < s.maxRetries && lo <= hi) {
+        var q, p, c;
+        // 1) 这道题本来就排在 3–5 题之后：直接把那一次当作重问
+        for (q = lo; q <= hi && !scheduled; q++) {
+          if (run.plan[q].item.id === id && !run.plan[q].retry) { run.plan[q].retry = true; scheduled = true; }
+        }
+        var cands = shuffle([lo, lo + 1, lo + 2].filter(function (x) { return x <= hi; }), rng);
+        // 2) 这道题排得太近（1–3 题后）：和 3–5 题之后的某一题互换位置
+        for (q = run.idx + 1; q < lo && q < run.plan.length && !scheduled; q++) {
+          if (run.plan[q].item.id !== id || run.plan[q].retry) continue;
+          for (c = 0; c < cands.length && !scheduled; c++) {
+            p = cands[c];
+            var other = run.plan[p];
+            if (other.retry) continue;
+            if (canPlace(run.plan, p, fam, run.idx, q) && canPlace(run.plan, q, other.item.family, run.idx, p)) {
+              run.plan[p] = run.plan[q]; run.plan[q] = other;
+              run.plan[p].retry = true; scheduled = true;
+            }
+          }
+        }
+        // 2b) 换不了位置：就把那次当作重问，不再另加，免得同一道题短时间出现三次
+        for (q = run.idx + 1; q < lo && q < run.plan.length && !scheduled; q++) {
+          if (run.plan[q].item.id === id && !run.plan[q].retry) { run.plan[q].retry = true; scheduled = true; }
+        }
+        // 3) 否则把 3–5 题之后的某一道普通题换成这道题
+        for (c = 0; c < cands.length && !scheduled; c++) {
+          p = cands[c];
+          if (run.plan[p].retry) continue;
+          if (!canPlace(run.plan, p, fam, run.idx, -1)) continue;
+          run.plan[p] = { item: cur.item, retry: true, check: false };
+          scheduled = true;
+        }
+        if (scheduled) run.retriesBy[id] = used + 1;
+      }
+    }
+    run.idx++;
+    return scheduled;
+  }
+
+  function median(xs) {
+    if (!xs.length) return null;
+    var a = xs.slice().sort(function (x, y) { return x - y; });
+    var m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+  }
+
+  function sessionStats(trials, s) {
+    var first = trials.filter(function (t) { return !t.retry; });
+    var correct = first.filter(function (t) { return t.correct; });
+    var fast = first.filter(function (t) { return outcome(t, s) === 'fast'; });
+    return {
+      n_items: trials.length, n_first: first.length, n_correct: correct.length, n_fast: fast.length,
+      accuracy: first.length ? Math.round((correct.length / first.length) * 1000) / 1000 : null,
+      median_rt_ms: median(correct.map(judgedRt))   // 答对题"开始输入用时"的中位数
+    };
+  }
+
+  /* 定级：从第一级往上，第一个又快又准比例不够的级别就是起点 */
+  function placementLevel(moduleId, trials, items, s) {
+    var mod = moduleById(moduleId);
+    var byId = {};
+    items.forEach(function (it) { byId[it.id] = it; });
+    for (var i = 0; i < mod.levels.length; i++) {
+      var lv = mod.levels[i].n;
+      var mine = trials.filter(function (t) { return byId[t.item_id] && byId[t.item_id].level === lv; });
+      if (!mine.length) return lv;
+      var fast = mine.filter(function (t) { return outcome(t, s) === 'fast'; }).length;
+      if (fast < mine.length) return lv;   // 没过或勉强过线，都从这一级开始
+    }
+    return mod.levels.length;
+  }
+
+  function finalize(run, ctx, nowIso, localInfo) {
+    var s = ctx.settings;
+    var stats = sessionStats(run.trials, s);
+    var allTrials = ctx.trials.concat(run.trials);
+    var before = ctx.statuses;
+    var after = computeStatuses(ctx.items, allTrials, s);
+    var modItems = ctx.items.filter(function (it) { return it.module === run.module; });
+    var newly = modItems.filter(function (it) {
+      return before[it.id].state !== 'mastered' && after[it.id].state === 'mastered';
+    });
+    var levelAfter, change = 'same', topPassed = false;
+    var L = run.level_before;
+    var maxL = maxLevel(run.module);
+    if (run.type === 'placement') {
+      levelAfter = placementLevel(run.module, run.trials, ctx.items, s);
+      change = 'placed';
+    } else {
+      var lp = levelProgress(run.module, L, ctx.items, after, s);
+      levelAfter = L;
+      if (lp.remaining === 0 && L < maxL) { levelAfter = L + 1; change = 'up'; }
+      else if (lp.remaining === 0 && L === maxL) { topPassed = true; }
+      else if (stats.accuracy !== null && stats.accuracy < s.downAccuracy && L > 1) {
+        var prev = completeSessions(ctx.sessions, run.module).filter(function (x) { return x.type === 'practice'; }).pop();
+        if (prev && prev.level_before === L && prev.level_after === L && prev.accuracy < s.downAccuracy) {
+          levelAfter = L - 1; change = 'down';
+        }
+      }
+    }
+    var session = buildSession(run, stats, levelAfter, 1, nowIso, localInfo);
+    var masteredCount = modItems.filter(function (it) { return after[it.id].state === 'mastered'; }).length;
+    return {
+      session: session, trials: run.trials,
+      summary: {
+        stats: stats, newly: newly, change: change, topPassed: topPassed,
+        allMastered: masteredCount === modItems.length, stoppedEarly: run.stoppedEarly,
+        levelBefore: L, levelAfter: levelAfter, type: run.type, module: run.module,
+        masteredCount: masteredCount, total: modItems.length,
+        next: levelProgress(run.module, levelAfter, ctx.items, after, s)
+      }
+    };
+  }
+
+  /* 中途退出或页面关掉：记录保留，但不影响等级 */
+  function finalizeIncomplete(run, s, nowIso, localInfo) {
+    var stats = sessionStats(run.trials, s);
+    return { session: buildSession(run, stats, run.level_before, 0, nowIso, localInfo), trials: run.trials };
+  }
+
+  function buildSession(run, stats, levelAfter, complete, nowIso, localInfo) {
+    return {
+      session_id: run.session_id, module: run.module, type: run.type, complete: complete,
+      start_iso: run.start_iso || nowIso, end_iso: nowIso,
+      local_start: run.local_start || (localInfo && localInfo.local) || '', tz: (localInfo && localInfo.tz) || '',
+      n_items: stats.n_items, n_first: stats.n_first, n_correct: stats.n_correct, n_fast: stats.n_fast,
+      accuracy: stats.accuracy, median_rt_ms: stats.median_rt_ms,
+      level_before: run.level_before, level_after: levelAfter, app_version: APP_VERSION
+    };
+  }
+
+  function moduleSummary(moduleId, ctx) {
+    var lv = currentLevel(moduleId, ctx.sessions, ctx.settings);
+    var modItems = ctx.items.filter(function (it) { return it.module === moduleId; });
+    var mastered = modItems.filter(function (it) { return ctx.statuses[it.id].state === 'mastered'; }).length;
+    var done = completeSessions(ctx.sessions, moduleId);
+    var all = ctx.sessions.filter(function (x) { return x.module === moduleId; })
+      .sort(function (a, b) { return a.end_iso < b.end_iso ? -1 : 1; });
+    return {
+      level: lv.level, needsPlacement: lv.needsPlacement, mastered: mastered, total: modItems.length,
+      sessions: done.length, last: all.length ? all[all.length - 1] : null,
+      progress: lv.needsPlacement ? null : levelProgress(moduleId, lv.level, ctx.items, ctx.statuses, ctx.settings),
+      isTop: lv.level === maxLevel(moduleId)
+    };
+  }
+
+  /* 最需要练的题：不会 > 会但慢 > 快要掌握，同类按最近 3 次里错的次数排 */
+  function stuckItems(moduleId, ctx, limit) {
+    var rank = { wrong: 0, slow: 1, near: 2 };
+    return ctx.items.filter(function (it) {
+      return it.module === moduleId && rank[ctx.statuses[it.id].state] !== undefined;
+    }).sort(function (a, b) {
+      var sa = ctx.statuses[a.id], sb = ctx.statuses[b.id];
+      return (rank[sa.state] - rank[sb.state]) || (sb.nWrong - sa.nWrong) || (sb.n - sa.n);
+    }).slice(0, limit || 8);
+  }
+
+  /* ---------- 示例数据：模拟一个学生练两周（用于预览和测试） ---------- */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function localString(d, offsetMin) {
+    var x = new Date(d.getTime() + offsetMin * 60000);
+    return x.toISOString().replace('T', ' ').slice(0, 19);
+  }
+
+  function simulate(opts) {
+    opts = opts || {};
+    var rng = mulberry32(opts.seed || 7);
+    var items = opts.items || buildBank();
+    var s = normalizeSettings(opts.settings);
+    var days = opts.days || 14;
+    var gain = opts.gain || [0.07, 0.12];
+    var tzOffset = 540; // 日本时间 UTC+9
+    var strength = {};
+    items.forEach(function (it) {
+      var base = opts.base ? opts.base(it) : (it.module === 'mult' ? [0, 0.92, 0.75, 0.6, 0.5, 0.45][it.level]
+        : [0, 0.8, 0.35, 0.2][it.level]) - (it.kind === 'root' ? 0.1 : 0);
+      strength[it.id] = clamp(base + (rng() - 0.5) * 0.2, 0.05, 0.98);
+    });
+    var sessions = [], trials = [];
+    var start = Date.parse(opts.startIso || '2026-10-26T10:00:00Z');
+    var modules = opts.modules || ['mult', 'sq'];
+    for (var d = 0; d < days; d++) {
+      if (!opts.everyDay && rng() < 0.15) continue; // 偶尔有一天没练
+      modules.forEach(function (mod, mi) {
+        var t0 = start + d * 864e5 + mi * 9 * 60000 + Math.floor(rng() * 30) * 60000;
+        var nowIso = new Date(t0).toISOString();
+        var ctx = { items: items, sessions: sessions, trials: trials, settings: s,
+          statuses: computeStatuses(items, trials, s) };
+        var run = createRun(mod, ctx, rng, nowIso);
+        run.session_id = 'demo-' + run.session_id;
+        run.start_iso = nowIso;
+        run.local_start = localString(new Date(t0), tzOffset);
+        var clock = t0;
+        while (run.idx < run.plan.length) {
+          var cur = run.plan[run.idx];
+          var st = strength[cur.item.id];
+          var correct = rng() < 0.45 + 0.55 * st;
+          var rt = Math.round(1100 + (1 - st) * 5200 + rng() * 900);
+          var timeout = rt > s.timeoutMs;
+          if (timeout) { rt = s.timeoutMs; correct = false; }
+          var startRt = timeout ? null : Math.round(rt * (0.55 + 0.25 * rng()));
+          clock += rt + 1500;
+          var ts = new Date(clock);
+          var trial = {
+            trial_id: run.session_id + '-' + run.idx, session_id: run.session_id, idx: run.idx,
+            ts_iso: ts.toISOString(), local_time: localString(ts, tzOffset), tz: 'Asia/Tokyo',
+            module: mod, phase: cur.check ? 'check' : run.type, level: cur.item.level, item_id: cur.item.id,
+            prompt: cur.item.prompt, answer: cur.item.answer,
+            response: correct ? cur.item.answer : timeout ? '' : String(Number(cur.item.answer) + (rng() < 0.5 ? -1 : 1) * (1 + Math.floor(rng() * 3))),
+            correct: correct ? 1 : 0, rt_first_key_ms: startRt, rt_submit_ms: rt,
+            timeout: timeout ? 1 : 0, retry: cur.retry ? 1 : 0
+          };
+          recordAnswer(run, trial, rng, s);
+          strength[cur.item.id] = clamp(st + (correct ? gain[0] : gain[1]), 0, 0.99);
+        }
+        var endIso = new Date(clock).toISOString();
+        var res = finalize(run, ctx, endIso, { local: run.local_start, tz: 'Asia/Tokyo' });
+        sessions.push(res.session);
+        trials = trials.concat(res.trials);
+      });
+    }
+    return { sessions: sessions, trials: trials };
+  }
+
+  var Engine = {
+    APP_VERSION: APP_VERSION, DEFAULT_SETTINGS: DEFAULT_SETTINGS, MODULES: MODULES,
+    moduleById: moduleById, buildBank: buildBank, normalizeSettings: normalizeSettings,
+    normalizeTrial: normalizeTrial, normalizeSession: normalizeSession,
+    judgedRt: judgedRt, outcome: outcome, itemStatus: itemStatus, computeStatuses: computeStatuses,
+    currentLevel: currentLevel, completeSessions: completeSessions, maxLevel: maxLevel,
+    needToLevelUp: needToLevelUp, levelProgress: levelProgress, stuckItems: stuckItems,
+    createRun: createRun, recordAnswer: recordAnswer, finalize: finalize,
+    finalizeIncomplete: finalizeIncomplete, sessionStats: sessionStats,
+    moduleSummary: moduleSummary, simulate: simulate, mulberry32: mulberry32, median: median
+  };
+
+  root.Engine = Engine;
+  if (typeof module !== 'undefined' && module.exports) module.exports = Engine;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* 秒答训练 · 页面逻辑 */
+(function () {
+  'use strict';
+  var E = window.Engine;
+  var CONFIG = window.APP_CONFIG || { API_URL: '' };
+  var BANK = E.buildBank();
+  var BY_ID = {};
+  BANK.forEach(function (it) { BY_ID[it.id] = it; });
+  var LS_DATA = 'miaoda.v1', LS_RUN = 'miaoda.inprogress', SS_TEACHER = 'miaoda.teacher';
+  var TRIAL_COLS = ['trial_id', 'session_id', 'idx', 'ts_iso', 'local_time', 'tz', 'module', 'phase', 'level', 'item_id', 'prompt', 'answer', 'response', 'correct', 'rt_first_key_ms', 'rt_submit_ms', 'timeout', 'retry'];
+  var SESSION_COLS = ['session_id', 'module', 'type', 'complete', 'start_iso', 'end_iso', 'local_start', 'tz', 'n_items', 'n_first', 'n_correct', 'n_fast', 'accuracy', 'median_rt_ms', 'level_before', 'level_after', 'app_version'];
+  var STATE_LABEL = { locked: '未解锁', unseen: '还没练', wrong: '还不会', slow: '会但慢', near: '快要掌握', mastered: '已掌握' };
+  var PRAISE_FAST = ['又快又准', '漂亮', '很熟了', '好快'];
+  var PRAISE = ['对了', '答对了', '没错'];
+
+  /* ---------- 小工具 ---------- */
+  var memStore = {};
+  function lsGet(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return memStore[k] || null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { memStore[k] = v; } }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } delete memStore[k]; }
+  function ssGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
+  function ssSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function pct(x) { return x === null || x === undefined ? '–' : Math.round(x * 100) + '%'; }
+  function secs(ms) { return ms === null || ms === undefined ? '–' : (Math.ceil(ms / 100 - 1e-9) / 10).toFixed(1); }
+  function localInfo(d) {
+    d = d || new Date();
+    var tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* ignore */ }
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    var local = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    return { local: local, tz: tz };
+  }
+  function shortTime(local, iso) {
+    var s = local || (iso ? localInfo(new Date(iso)).local : '');
+    var m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})/.exec(s);
+    return m ? Number(m[2]) + '月' + Number(m[3]) + '日 ' + m[4] + ':' + m[5] : '–';
+  }
+  function shortDate(local) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(local || '');
+    return m ? Number(m[2]) + '/' + Number(m[3]) : '';
+  }
+  function levelLabel(mod, n) {
+    var lv = E.moduleById(mod).levels[n - 1];
+    return lv ? '等级 ' + n + ' · ' + lv.label : '';
+  }
+  function levelPhrase(mod, n) {
+    var lv = E.moduleById(mod).levels[n - 1];
+    return lv ? '等级 ' + n + '（' + lv.label + '）' : '';
+  }
+  function eqText(it) {
+    if (it.kind === 'mult') return it.a + ' × ' + it.b + ' = ' + it.answer;
+    if (it.kind === 'square') return it.n + '² = ' + it.answer;
+    return '√' + (it.n * it.n) + ' = ' + it.answer;
+  }
+  function qHTML(it) {
+    if (it.kind === 'mult') return '<span>' + it.a + '</span><span class="eqs">×</span><span>' + it.b + '</span>';
+    if (it.kind === 'square') return '<span>' + it.n + '<sup>2</sup></span>';
+    return '<span class="rad"><span class="rsign">√</span><span class="rnum">' + (it.n * it.n) + '</span></span>';
+  }
+
+  /* ---------- 网络 ---------- */
+  function withTimeout(p, ms) {
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () { reject(new Error('timeout')); }, ms);
+      p.then(function (v) { clearTimeout(t); resolve(v); }, function (e) { clearTimeout(t); reject(e); });
+    });
+  }
+  function apiGet(params) {
+    var q = new URLSearchParams(params); q.set('_', Date.now());
+    return withTimeout(fetch(CONFIG.API_URL + '?' + q.toString()).then(function (r) { return r.json(); }), 20000);
+  }
+  function apiPost(body) {
+    return withTimeout(fetch(CONFIG.API_URL, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }), 20000);
+  }
+
+  /* ---------- 数据 ---------- */
+  var Store = {
+    mode: CONFIG.API_URL ? 'cloud' : 'local',
+    sessions: [], trials: [], settings: {}, queue: [], status: 'idle', flushing: false,
+    loadCache: function () {
+      var d = lsGet(LS_DATA) || {};
+      this.sessions = (d.sessions || []).map(E.normalizeSession);
+      this.trials = (d.trials || []).map(E.normalizeTrial);
+      this.settings = d.settings || {};
+      this.queue = d.queue || [];
+    },
+    persist: function () {
+      lsSet(LS_DATA, { sessions: this.sessions, trials: this.trials, settings: this.settings, queue: this.queue });
+    },
+    pull: function () {
+      var self = this;
+      self.status = 'syncing';
+      return apiGet({ action: 'load' }).then(function (r) {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'load failed');
+        self.sessions = (r.sessions || []).map(E.normalizeSession);
+        self.trials = (r.trials || []).map(E.normalizeTrial);
+        self.settings = r.settings || {};
+        var have = {};
+        self.sessions.forEach(function (s) { have[s.session_id] = 1; });
+        self.queue.forEach(function (p) {
+          if (have[p.session.session_id]) return;
+          self.sessions.push(E.normalizeSession(p.session));
+          p.trials.forEach(function (t) { self.trials.push(E.normalizeTrial(t)); });
+        });
+        self.status = 'synced';
+        self.persist();
+        return self.flush();
+      }).catch(function () { self.status = 'offline'; });
+    },
+    addPack: function (pack) {
+      var self = this;
+      self.sessions.push(E.normalizeSession(pack.session));
+      pack.trials.forEach(function (t) { self.trials.push(E.normalizeTrial(t)); });
+      if (self.mode === 'cloud') self.queue.push(pack);
+      self.persist();
+      if (self.mode === 'cloud') self.flush();
+    },
+    flush: function () {
+      var self = this;
+      if (self.mode !== 'cloud' || !self.queue.length || self.flushing) return Promise.resolve();
+      self.flushing = true;
+      var sending = self.queue.slice();
+      return apiPost({ action: 'upload', packs: sending }).then(function (r) {
+        if (!r || !r.ok) throw new Error((r && r.error) || 'upload failed');
+        var done = {};
+        (r.accepted || []).concat(r.duplicates || []).forEach(function (id) { done[id] = 1; });
+        self.queue = self.queue.filter(function (p) { return !done[p.session.session_id]; });
+        self.status = 'synced';
+        self.persist();
+      }).catch(function () { self.status = 'offline'; }).then(function () {
+        self.flushing = false; paintSync();
+      });
+    },
+    saveSettings: function (next, key) {
+      var self = this;
+      var p = self.mode === 'cloud'
+        ? apiPost({ action: 'settings', key: key, settings: next }).then(function (r) { if (!r || !r.ok) throw new Error((r && r.error) || '保存失败'); })
+        : Promise.resolve();
+      return p.then(function () { self.settings = next; self.persist(); });
+    },
+    exportAll: function (key) {
+      var self = this;
+      if (self.mode !== 'cloud') return Promise.resolve({ sessions: self.sessions, trials: self.trials });
+      return apiGet({ action: 'export', key: key }).then(function (r) {
+        if (!r || !r.ok) throw new Error((r && r.error) || '导出失败');
+        return { sessions: r.sessions.map(E.normalizeSession), trials: r.trials.map(E.normalizeTrial) };
+      });
+    },
+    ctx: function () {
+      var settings = E.normalizeSettings(this.settings);
+      return { items: BANK, sessions: this.sessions, trials: this.trials, settings: settings,
+        statuses: E.computeStatuses(BANK, this.trials, settings) };
+    }
+  };
+
+  /* 上次练到一半关掉页面：把已答的题保存为"未完成" */
+  function recoverInProgress() {
+    var r = lsGet(LS_RUN);
+    if (!r) return;
+    lsDel(LS_RUN);
+    if (!r.trials || !r.trials.length) return;
+    var s = E.normalizeSettings(Store.settings);
+    var last = r.trials[r.trials.length - 1].ts_iso;
+    Store.addPack(E.finalizeIncomplete(r, s, last, { local: r.local_start, tz: r.trials[0].tz }));
+  }
+
+  /* ---------- 视图 ---------- */
+  var view = 'home';
+  var progMod = 'mult';
+  var isTeacher = false;
+  var teacherKey = '';
+  var lastSummary = null;
+  var P = null; // 练习中的状态
+  var appEl, mainEl, navEl, tipEl;
+
+  function go(v) {
+    view = v;
+    render();
+    window.scrollTo(0, 0);
+  }
+
+  function render() {
+    navEl.hidden = view === 'practice';
+    paintNav();
+    mainEl.innerHTML = '';
+    mainEl.className = view === 'practice' ? 'is-practice' : '';
+    ({ home: renderHome, practice: renderPractice, result: renderResult, progress: renderProgress, options: renderOptions, data: renderData })[view]();
+  }
+
+  function paintNav() {
+    var items = [['home', '练习'], ['progress', '轨迹']];
+    var html = items.map(function (x) {
+      return '<button type="button" data-go="' + x[0] + '"' + (view === x[0] || (x[0] === 'home' && view === 'result') ? ' aria-current="page"' : '') + '>' + x[1] + '</button>';
+    }).join('');
+    if (isTeacher) {
+      html += '<span class="sep" aria-hidden="true"></span>' + [['options', '设置'], ['data', '数据']].map(function (x) {
+        return '<button type="button" data-go="' + x[0] + '"' + (view === x[0] ? ' aria-current="page"' : '') + '>' + x[1] + '</button>';
+      }).join('');
+    }
+    navEl.querySelector('.nav').innerHTML = html;
+  }
+
+  function previewBanner() {
+    return Store.mode === 'local'
+      ? '<div class="banner">预览模式：记录只保存在这台电脑的这个浏览器里。部署好 Google 表格后，记录会自动同步，你和学生在任何设备上都能看到。</div>'
+      : '';
+  }
+
+  function syncText() {
+    if (Store.mode === 'local') return '';
+    if (Store.queue.length) return '有 ' + Store.queue.length + ' 组记录等待上传，联网后会自动补传。';
+    if (Store.status === 'offline') return '暂时连不上服务器，记录先存在这台电脑上。';
+    if (Store.status === 'syncing') return '正在同步…';
+    return '记录已同步。';
+  }
+  function paintSync() {
+    var el = document.getElementById('sync');
+    if (el) el.textContent = syncText();
+  }
+
+  /* ---------- 首页 ---------- */
+  function renderHome() {
+    var ctx = Store.ctx();
+    var n = ctx.settings.sessionLength;
+    var cards = E.MODULES.map(function (m) {
+      var s = E.moduleSummary(m.id, ctx);
+      var chip = s.needsPlacement ? '还没定级' : levelLabel(m.id, s.level);
+      var last = s.last ? '上次练习：' + shortTime(s.last.local_start, s.last.start_iso) : '还没练过';
+      var goal = '';
+      if (!s.needsPlacement) {
+        goal = s.progress.remaining > 0
+          ? (s.isTop ? '最高级，再掌握 ' : '再掌握 ') + '<b>' + s.progress.remaining + '</b> 题' + (s.isTop ? '就全部过关' : '就升到等级 ' + (s.level + 1))
+          : (s.isTop ? '最高级已过关，之后以复习为主' : '这一级已经过关');
+        goal = '<p class="goal">' + goal + '<span class="muted"> · 共 ' + m.levels.length + ' 级</span></p>';
+      }
+      var btn = s.needsPlacement ? '先做一次定级（' + n + ' 题）' : '开始练习（' + n + ' 题）';
+      var hint = s.needsPlacement ? '<p class="hint">第一次先看看哪些题已经很熟，再从合适的等级开始。</p>' : '';
+      return '<article class="mod-card">' +
+        '<header><h2>' + esc(m.name) + '</h2><span class="chip">' + esc(chip) + '</span></header>' +
+        '<div class="meter" role="img" aria-label="已掌握 ' + s.mastered + ' / ' + s.total + '"><div style="width:' + (100 * s.mastered / s.total).toFixed(1) + '%"></div></div>' +
+        goal + '<p class="meta"><b>' + s.mastered + '</b> / ' + s.total + ' 题已掌握 · ' + esc(last) + '</p>' + hint +
+        '<div><button type="button" class="btn primary" data-start="' + m.id + '">' + btn + '</button></div>' +
+        '</article>';
+    }).join('');
+    mainEl.innerHTML = previewBanner() +
+      '<section><h1>今天练哪个？</h1><p class="sub">看到题就直接说出答案，越快越好。每题答完都会显示正确答案。</p></section>' +
+      '<div class="cards">' + cards + '</div>' +
+      '<p class="sync" id="sync">' + esc(syncText()) + '</p>';
+  }
+
+  /* ---------- 练习 ---------- */
+  function startPractice(mod) {
+    var ctx = Store.ctx();
+    var run = E.createRun(mod, ctx, Math.random, new Date().toISOString());
+    P = { run: run, ctx: ctx, phase: 'ask', typed: '', t0: null, tFirst: null, tLast: null, timer: null, fbTimer: null, fbUntil: 0 };
+    view = 'practice';
+    render();
+    ask();
+  }
+
+  function renderPractice() {
+    var m = E.moduleById(P.run.module);
+    var tag = P.run.type === 'placement' ? '定级' : levelLabel(P.run.module, P.run.level_before);
+    mainEl.innerHTML =
+      '<div class="practice">' +
+      '<div class="pbar"><span class="pmod">' + esc(m.name) + ' · ' + esc(tag) + '</span>' +
+      '<div class="ptrack" aria-hidden="true"><div class="pfill" id="pfill"></div></div>' +
+      '<span class="pcount" id="pcount"></span>' +
+      '<button type="button" class="btn ghost" id="quit">结束</button></div>' +
+      '<div class="stage">' +
+      '<div class="eq" id="eq" aria-live="off"><span id="q"></span><span class="eqs">=</span><span class="ans empty" id="ans"></span></div>' +
+      '<div class="fb" id="fb" aria-live="polite"></div>' +
+      '<p class="keyhint" id="keyhint">用键盘输入数字，按回车提交</p>' +
+      '</div></div>';
+  }
+
+  function paintQuestion(cur) {
+    var total = P.run.plan.length;
+    document.getElementById('pcount').textContent = (P.run.idx + 1) + ' / ' + total;
+    document.getElementById('pfill').style.width = (100 * P.run.idx / total) + '%';
+    document.getElementById('q').innerHTML = qHTML(cur.item);
+    var eq = document.getElementById('eq');
+    eq.classList.remove('is-ok', 'is-learn');
+    paintTyped();
+    document.getElementById('fb').innerHTML = '';
+    document.getElementById('keyhint').textContent = '用键盘输入数字，按回车提交';
+  }
+
+  function paintTyped() {
+    var a = document.getElementById('ans');
+    a.textContent = P.typed;
+    a.classList.toggle('empty', !P.typed);
+  }
+
+  function ask() {
+    var cur = P.run.plan[P.run.idx];
+    if (!cur) { finish(); return; }
+    P.phase = 'ask'; P.typed = ''; P.t0 = null; P.tFirst = null; P.tLast = null;
+    paintQuestion(cur);
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        if (!P || P.phase !== 'ask') return;
+        P.t0 = performance.now();
+        if (!P.run.start_iso) { P.run.start_iso = new Date().toISOString(); P.run.local_start = localInfo().local; }
+        P.timer = setTimeout(function () { submit(true); }, P.ctx.settings.timeoutMs);
+      });
+    });
+  }
+
+  function submit(timedOut) {
+    if (!P || P.phase !== 'ask' || P.t0 === null) return;
+    clearTimeout(P.timer);
+    var now = performance.now();
+    var cur = P.run.plan[P.run.idx];
+    var it = cur.item;
+    // 已经打对、只是没按回车就超时：记为答对 + 超时（算"会但慢"）
+    var correct = P.typed === it.answer;
+    var rtSubmit = timedOut ? P.ctx.settings.timeoutMs : Math.round(now - P.t0);
+    var li = localInfo();
+    var trial = {
+      trial_id: P.run.session_id + '-' + P.run.idx, session_id: P.run.session_id, idx: P.run.idx,
+      ts_iso: new Date().toISOString(), local_time: li.local, tz: li.tz,
+      module: P.run.module, phase: cur.check ? 'check' : P.run.type, level: it.level, item_id: it.id,
+      prompt: it.prompt, answer: it.answer, response: P.typed,
+      correct: correct ? 1 : 0,
+      rt_first_key_ms: P.tFirst !== null ? Math.round(P.tFirst - P.t0) : null,
+      rt_submit_ms: rtSubmit,
+      timeout: timedOut ? 1 : 0, retry: cur.retry ? 1 : 0
+    };
+    var inserted = E.recordAnswer(P.run, trial, Math.random, P.ctx.settings);
+    lsSet(LS_RUN, {
+      session_id: P.run.session_id, module: P.run.module, type: P.run.type, level_before: P.run.level_before,
+      start_iso: P.run.start_iso, local_start: P.run.local_start, trials: P.run.trials
+    });
+    feedback(it, trial, inserted);
+  }
+
+  function feedback(it, trial, inserted) {
+    P.phase = 'feedback';
+    var fast = E.outcome(trial, P.ctx.settings) === 'fast';
+    var eq = document.getElementById('eq');
+    var a = document.getElementById('ans');
+    a.textContent = it.answer;
+    a.classList.remove('empty');
+    eq.classList.add(trial.correct ? 'is-ok' : 'is-learn');
+    var fb = document.getElementById('fb');
+    if (trial.correct) {
+      fb.innerHTML = '<span class="fb-ok">✓ ' + esc(pick(fast ? PRAISE_FAST : PRAISE)) + '</span>' +
+        (trial.timeout ? '<span class="fb-later">下次打完记得按回车</span>' : '');
+      P.fbUntil = performance.now() + 250;
+      P.fbTimer = setTimeout(next, trial.timeout ? 1800 : fast ? 750 : 1000);
+      document.getElementById('keyhint').textContent = '';
+    } else {
+      fb.innerHTML = '<span class="fb-learn">' + (trial.timeout ? '没关系，' : '') + '记一下<b>' + esc(eqText(it)) + '</b></span>' +
+        (trial.response ? '<span class="fb-yours">你写的是 ' + esc(trial.response) + '</span>' : '') +
+        (inserted ? '<span class="fb-later">过几题再练一次</span>' : '');
+      P.fbUntil = performance.now() + 1000;     // 自己看清楚再继续，不自动跳走
+      document.getElementById('keyhint').textContent = '记住了就按回车继续';
+    }
+  }
+
+  function next() {
+    if (!P || P.phase !== 'feedback') return;
+    clearTimeout(P.fbTimer);
+    ask();
+  }
+
+  function finish() {
+    var li = localInfo();
+    var res = E.finalize(P.run, P.ctx, new Date().toISOString(), li);
+    lsDel(LS_RUN);
+    Store.addPack({ session: res.session, trials: res.trials });
+    lastSummary = res.summary;
+    P = null;
+    go('result');
+  }
+
+  function quit() {
+    clearTimeout(P.timer); clearTimeout(P.fbTimer);
+    if (P.run.trials.length) {
+      var s = P.ctx.settings;
+      Store.addPack(E.finalizeIncomplete(P.run, s, new Date().toISOString(), localInfo()));
+    }
+    lsDel(LS_RUN);
+    P = null;
+    go('home');
+  }
+
+  function onKey(e) {
+    if (view !== 'practice' || !P) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var d = null;
+    if (/^[0-9]$/.test(e.key)) d = e.key;
+    else if (/^(Digit|Numpad)[0-9]$/.test(e.code || '')) d = e.code.slice(-1);
+    if (P.phase === 'ask') {
+      if (d !== null) {
+        e.preventDefault();
+        if (P.t0 === null) return;
+        if (P.typed.length < 4) { if (!P.typed) P.tFirst = performance.now(); P.typed += d; P.tLast = performance.now(); paintTyped(); }
+      } else if (e.key === 'Backspace') {
+        e.preventDefault(); P.typed = P.typed.slice(0, -1); P.tLast = performance.now(); if (!P.typed) P.tFirst = null; paintTyped();
+      } else if (e.key === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault(); if (P.typed) submit(false);
+      }
+    } else if (P.phase === 'feedback') {
+      if ((e.key === 'Enter' || e.key === ' ' || e.code === 'NumpadEnter') && performance.now() >= P.fbUntil) { e.preventDefault(); next(); }
+      else if (d !== null || e.key === 'Enter') e.preventDefault();
+    }
+  }
+
+  /* ---------- 结果 ---------- */
+  function renderResult() {
+    var s = lastSummary;
+    if (!s) { go('home'); return; }
+    var m = E.moduleById(s.module);
+    var lead;
+    var togo = s.next.remaining > 0 ? '再掌握 ' + s.next.remaining + ' 题就' + (s.levelAfter < E.maxLevel(s.module) ? '升到等级 ' + (s.levelAfter + 1) : '全部过关') + '。' : '';
+    if (s.type === 'placement') lead = (s.stoppedEarly ? '后面的题更难，先不做了。' : '') + '从' + levelPhrase(s.module, s.levelAfter) + '开始练，' + (togo || '已经很熟的题会穿插复习。');
+    else if (s.change === 'up') lead = '升级了！下次开始练' + levelPhrase(s.module, s.levelAfter) + '，新题会一次加几道。';
+    else if (s.change === 'down') lead = '下次先回到' + levelPhrase(s.module, s.levelAfter) + '，把这些题再练熟一点。';
+    else if (s.allMastered) lead = '全部 ' + s.total + ' 题都掌握了！之后以复习为主，保持住。';
+    else if (s.topPassed) lead = '最高级也过关了！之后以复习为主。';
+    else lead = '继续练' + levelPhrase(s.module, s.levelBefore) + '。' + togo;
+    var st = s.stats;
+    var chips = s.newly.length
+      ? '<section class="panel"><h2>这次新掌握了 ' + s.newly.length + ' 题</h2><div class="chips">' +
+        s.newly.map(function (it) { return '<span class="fact-chip">' + esc(eqText(it)) + '</span>'; }).join('') + '</div></section>'
+      : '';
+    mainEl.innerHTML =
+      '<section class="result">' +
+      '<div><h1>' + (s.type === 'placement' ? '定级完成' : '完成 ' + st.n_items + ' 题') + '</h1><p class="lead">' + esc(lead) + '</p></div>' +
+      '<div class="tiles">' +
+      tile('正确率', pct(st.accuracy), '按每题第一次作答算') +
+      tile('又快又准', st.n_fast + '<small>题</small>', '答对，而且 ' + secs(P_settings().fastMs) + ' 秒内开始输入') +
+      tile('一般多快开始作答', secs(st.median_rt_ms) + '<small>秒</small>', '答对的题里，一半比这更快') +
+      '</div>' + chips +
+      '<div class="row"><button type="button" class="btn primary" data-start="' + s.module + '">再练一组' + esc(m.short) + '</button>' +
+      '<button type="button" class="btn" data-go="progress" data-mod="' + s.module + '">看轨迹</button>' +
+      '<button type="button" class="btn ghost" data-go="home">回首页</button></div>' +
+      '</section>';
+  }
+  function P_settings() { return E.normalizeSettings(Store.settings); }
+  function tile(label, value, note) {
+    return '<div class="tile"><span class="label">' + esc(label) + '</span><span class="value">' + value + '</span>' +
+      (note ? '<span class="note">' + esc(note) + '</span>' : '') + '</div>';
+  }
+
+  /* ---------- 轨迹 ---------- */
+  function renderProgress() {
+    var ctx = Store.ctx();
+    var mod = progMod;
+    var m = E.moduleById(mod);
+    var sum = E.moduleSummary(mod, ctx);
+    var all = ctx.sessions.filter(function (x) { return x.module === mod; })
+      .sort(function (a, b) { return a.end_iso < b.end_iso ? 1 : -1; });
+    var done = E.completeSessions(ctx.sessions, mod);
+    var seg = '<div class="seg" role="group" aria-label="选择模块">' + E.MODULES.map(function (x) {
+      return '<button type="button" data-mod="' + x.id + '" aria-pressed="' + (x.id === mod) + '">' + esc(x.name) + '</button>';
+    }).join('') + '</div>';
+    var tiles = '<div class="tiles">' +
+      tile('当前等级', sum.needsPlacement ? '–' : sum.level + '<small>（共 ' + m.levels.length + ' 级）</small>', sum.needsPlacement ? '还没定级' : m.levels[sum.level - 1].label + (sum.progress.remaining ? '，再掌握 ' + sum.progress.remaining + ' 题升级' : '')) +
+      tile('已掌握', sum.mastered + '<small>/ ' + sum.total + '</small>', '连续 ' + ctx.settings.masteryStreak + ' 次又快又准') +
+      tile('完成练习', done.length + '<small>次</small>', all.length > done.length ? '另有 ' + (all.length - done.length) + ' 次没做完' : '') +
+      tile('最近一次', sum.last ? esc(shortTime(sum.last.local_start, sum.last.start_iso)) : '–', sum.last && sum.last.tz ? esc(sum.last.tz) + ' 时间' : '') +
+      '</div>';
+    var demoBtn = Store.mode === 'local' ? '<button type="button" class="btn" id="demo">填入两周示例数据看看效果</button>' : '';
+    var body;
+    if (!all.length) {
+      body = '<section class="panel"><div class="empty-state"><p>还没有' + esc(m.name) + '的练习记录。做完第一组之后，这里会出现进步曲线和掌握地图。</p>' + demoBtn + '</div></section>';
+    } else {
+      body =
+        '<section class="panel"><div class="panel-head"><h2>每次练习的变化</h2><p>只算做完的练习，横轴是练习日期</p></div>' +
+        '<div class="charts">' +
+        '<figure class="chart"><figcaption>正确率<span>每题第一次作答</span></figcaption><div class="plot" id="c-acc"></div></figure>' +
+        '<figure class="chart"><figcaption>一般多快开始作答<span>答对题的中位数（秒）；横线是 ' + secs(ctx.settings.fastMs) + ' 秒标准</span></figcaption><div class="plot" id="c-rt"></div></figure>' +
+        '</div></section>' +
+        stuckPanel(ctx, mod) +
+        '<section class="panel"><div class="panel-head"><h2>掌握地图</h2><p>把鼠标放在格子上看最近 3 次作答</p></div>' +
+        legendHTML() + '<div class="mapwrap">' + (mod === 'mult' ? multMap(ctx, sum) : sqMap(ctx, sum)) + '</div></section>' +
+        '<section class="panel"><h2>练习记录</h2>' + recordsTable(all) + '</section>';
+    }
+    mainEl.innerHTML = previewBanner() + '<div class="panel-head"><h1>练习轨迹</h1>' + seg + '</div>' + tiles + body;
+    if (all.length) drawCharts(done, ctx.settings);
+  }
+
+  function stuckPanel(ctx, mod) {
+    var list = E.stuckItems(mod, ctx, 8);
+    if (!list.length) return '';
+    return '<section class="panel"><div class="panel-head"><h2>接下来重点练这几题</h2><p>按最近 3 次作答排，最需要练的在前</p></div><div class="chips">' +
+      list.map(function (it) {
+        var st = ctx.statuses[it.id];
+        return '<span class="fact-chip stuck-' + st.state + '">' + esc(eqText(it)) + '<small>' + STATE_LABEL[st.state] +
+          (st.nWrong ? ' · 最近错 ' + st.nWrong + ' 次' : '') + '</small></span>';
+      }).join('') + '</div></section>';
+  }
+
+  function legendHTML() {
+    return '<div class="legend">' + ['locked', 'unseen', 'wrong', 'slow', 'near', 'mastered'].map(function (k) {
+      return '<span><i class="st-' + k + '"></i>' + STATE_LABEL[k] + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function cellState(it, ctx, sum) {
+    var st = ctx.statuses[it.id];
+    if (st.state === 'unseen' && (sum.needsPlacement || it.level > sum.level)) return 'locked';
+    return st.state;
+  }
+
+  function cellHTML(it, ctx, sum, text) {
+    var k = cellState(it, ctx, sum);
+    return '<div class="cell st-' + k + '" tabindex="0" data-item="' + it.id + '" data-state="' + k + '" aria-label="' +
+      esc(eqText(it) + '，' + STATE_LABEL[k]) + '">' + esc(text) + '</div>';
+  }
+
+  function multMap(ctx, sum) {
+    var h = '<div class="grid-mult"><div class="gh">×</div>';
+    for (var b = 2; b <= 9; b++) h += '<div class="gh">' + b + '</div>';
+    for (var a = 2; a <= 9; a++) {
+      h += '<div class="gh">' + a + '</div>';
+      for (b = 2; b <= 9; b++) { var it = BY_ID['m' + a + 'x' + b]; h += cellHTML(it, ctx, sum, it.answer); }
+    }
+    return h + '</div>';
+  }
+
+  function sqMap(ctx, sum) {
+    var m = E.moduleById('sq');
+    return '<div class="sq-blocks">' + m.levels.map(function (lv) {
+      var ns = BANK.filter(function (it) { return it.module === 'sq' && it.kind === 'square' && it.level === lv.n; }).map(function (it) { return it.n; });
+      var cols = 'grid-template-columns: 44px repeat(' + ns.length + ', 52px)';
+      var h = '<div class="sq-block"><h3>等级 ' + lv.n + ' · ' + esc(lv.label) + '</h3><div class="grid-sq" style="' + cols + '">';
+      h += '<div class="rowlabel">n</div>' + ns.map(function (n) { return '<div class="gh">' + n + '</div>'; }).join('');
+      h += '<div class="rowlabel">平方</div>' + ns.map(function (n) { var it = BY_ID['s' + n]; return cellHTML(it, ctx, sum, it.answer); }).join('');
+      h += '<div class="rowlabel">根号</div>' + ns.map(function (n) { var it = BY_ID['r' + n]; return cellHTML(it, ctx, sum, '√' + n * n); }).join('');
+      return h + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function recordsTable(all) {
+    var rows = all.map(function (s) {
+      var type = !s.complete ? '<span class="tag part">没做完</span>' : s.type === 'placement' ? '<span class="tag">定级</span>' : '<span class="tag">练习</span>';
+      var lv = s.type === 'placement' ? '→ ' + s.level_after
+        : s.level_after > s.level_before ? s.level_before + ' → <span class="tag up">' + s.level_after + '</span>'
+        : s.level_after < s.level_before ? s.level_before + ' → ' + s.level_after : String(s.level_before);
+      return '<tr><td>' + esc(shortTime(s.local_start, s.start_iso)) + '</td><td>' + type + '</td>' +
+        '<td class="n">' + (s.n_items || 0) + '</td><td class="n">' + pct(s.accuracy) + '</td><td class="n">' + (s.n_fast || 0) + '</td>' +
+        '<td class="n">' + secs(s.median_rt_ms) + '</td><td class="n">' + lv + '</td></tr>';
+    }).join('');
+    return '<div class="tablewrap"><table><thead><tr><th>时间（学生当地）</th><th>类型</th><th>题数</th><th>正确率</th><th>又快又准</th><th>开始作答（秒）</th><th>等级</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
+  /* 折线图：单一序列、一个纵轴、十字准线提示 */
+  function drawCharts(done, settings) {
+    var pts = done.map(function (s, i) {
+      return { i: i, acc: s.accuracy, rt: s.median_rt_ms, s: s };
+    });
+    lineChart(document.getElementById('c-acc'), pts, {
+      get: function (p) { return p.acc === null ? null : p.acc * 100; },
+      yMax: 100, ticks: [0, 25, 50, 75, 100], fmt: function (v) { return v + '%'; },
+      tipValue: function (p) { return pct(p.acc); }
+    });
+    var maxRt = Math.max.apply(null, pts.map(function (p) { return p.rt || 0; }).concat([settings.fastMs + 1000]));
+    var top = Math.ceil(maxRt / 1000);
+    var step = top > 8 ? 2 : 1;
+    top = Math.ceil(top / step) * step;
+    var ticks = [];
+    for (var t = 0; t <= top; t += step) ticks.push(t);
+    lineChart(document.getElementById('c-rt'), pts, {
+      get: function (p) { return p.rt === null ? null : p.rt / 1000; },
+      yMax: top, ticks: ticks, fmt: function (v) { return v + ' 秒'; }, ref: settings.fastMs / 1000,
+      tipValue: function (p) { return secs(p.rt) + ' 秒'; }
+    });
+  }
+
+  function lineChart(host, pts, o) {
+    if (!host) return;
+    var W = Math.max(280, host.clientWidth || 420), H = 210;
+    var ml = 48, mr = 40, mt = 12, mb = 28;
+    var iw = W - ml - mr, ih = H - mt - mb;
+    var n = pts.length;
+    var x = function (i) { return n === 1 ? ml + iw / 2 : ml + (iw * i) / (n - 1); };
+    var y = function (v) { return mt + ih - (ih * v) / o.yMax; };
+    var svg = '<svg width="' + W + '" height="' + H + '" role="img" aria-label="折线图">';
+    o.ticks.forEach(function (t) {
+      svg += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="var(--grid)" stroke-width="1"/>';
+      svg += '<text x="' + (ml - 8) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + esc(o.fmt(t)) + '</text>';
+    });
+    svg += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + y(0) + '" y2="' + y(0) + '" stroke="var(--axis)" stroke-width="1"/>';
+    if (o.ref) {
+      svg += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + y(o.ref) + '" y2="' + y(o.ref) + '" stroke="var(--ink-2)" stroke-width="1" opacity="0.7"/>';
+    }
+    var maxTicks = Math.max(2, Math.floor(iw / 70));
+    var every = Math.max(1, Math.ceil(n / maxTicks));
+    pts.forEach(function (p, i) {
+      if (i % every === 0 || i === n - 1) {
+        if (i === n - 1 && i % every !== 0 && n - 1 - (Math.floor((n - 1) / every) * every) < every / 2) return;
+        svg += '<text x="' + x(i) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(shortDate(p.s.local_start) || String(i + 1)) + '</text>';
+      }
+    });
+    var valid = pts.filter(function (p) { return o.get(p) !== null; });
+    if (valid.length > 1) {
+      var area = 'M' + x(valid[0].i) + ',' + y(0) + valid.map(function (p) { return ' L' + x(p.i) + ',' + y(o.get(p)); }).join('') + ' L' + x(valid[valid.length - 1].i) + ',' + y(0) + ' Z';
+      svg += '<path d="' + area + '" fill="var(--accent)" opacity="0.1"/>';
+      var line = valid.map(function (p, k) { return (k ? 'L' : 'M') + x(p.i) + ',' + y(o.get(p)); }).join(' ');
+      svg += '<path d="' + line + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    }
+    valid.forEach(function (p, k) {
+      if (n <= 24 || k === valid.length - 1) {
+        svg += '<circle cx="' + x(p.i) + '" cy="' + y(o.get(p)) + '" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>';
+      }
+    });
+    if (valid.length) {
+      var lastP = valid[valid.length - 1];
+      svg += '<text class="endlabel" x="' + (x(lastP.i) + 8) + '" y="' + (y(o.get(lastP)) - 8) + '">' + esc(o.tipValue(lastP)) + '</text>';
+    }
+    svg += '<line class="xh" x1="0" x2="0" y1="' + mt + '" y2="' + (mt + ih) + '" stroke="var(--ink-2)" stroke-width="1" opacity="0" />';
+    svg += '<rect class="hit" x="' + ml + '" y="' + mt + '" width="' + iw + '" height="' + ih + '" fill="transparent"/>';
+    svg += '</svg>';
+    host.innerHTML = svg + '<div class="tip"></div>';
+    var hit = host.querySelector('.hit'), xh = host.querySelector('.xh'), tip = host.querySelector('.tip');
+    function show(evt) {
+      var r = host.getBoundingClientRect();
+      var px = evt.clientX - r.left;
+      var i = n === 1 ? 0 : Math.round(((px - ml) / iw) * (n - 1));
+      i = Math.max(0, Math.min(n - 1, i));
+      var p = pts[i];
+      xh.setAttribute('x1', x(i)); xh.setAttribute('x2', x(i)); xh.setAttribute('opacity', '0.5');
+      tip.innerHTML = '';
+      var v = document.createElement('div'); v.className = 'tv'; v.textContent = o.tipValue(p); tip.appendChild(v);
+      var l1 = document.createElement('div'); l1.className = 'tl';
+      l1.textContent = shortTime(p.s.local_start, p.s.start_iso) + ' · ' + (p.s.type === 'placement' ? '定级' : '等级 ' + p.s.level_before);
+      tip.appendChild(l1);
+      var l2 = document.createElement('div'); l2.className = 'tl';
+      l2.textContent = '又快又准 ' + (p.s.n_fast || 0) + ' / ' + (p.s.n_first || 0) + ' 题';
+      tip.appendChild(l2);
+      tip.style.display = 'block';
+      var tx = x(i) + 12;
+      if (tx + 160 > W) tx = x(i) - 172;
+      tip.style.left = tx + 'px'; tip.style.top = mt + 'px';
+    }
+    function hide() { tip.style.display = 'none'; xh.setAttribute('opacity', '0'); }
+    hit.addEventListener('pointermove', show);
+    hit.addEventListener('pointerleave', hide);
+  }
+
+  /* 掌握地图的格子提示 */
+  function showCellTip(cell) {
+    var it = BY_ID[cell.getAttribute('data-item')];
+    var ctx = Store.ctx();
+    var st = ctx.statuses[it.id];
+    var k = cell.getAttribute('data-state');
+    tipEl.innerHTML = '';
+    var v = document.createElement('div'); v.className = 'tv'; v.textContent = eqText(it); tipEl.appendChild(v);
+    var l = document.createElement('div'); l.className = 'tl'; l.textContent = STATE_LABEL[k] + (st.n ? ' · 共练 ' + st.n + ' 次' : ''); tipEl.appendChild(l);
+    if (st.recent.length) {
+      var r = document.createElement('div'); r.className = 'tl';
+      r.textContent = '最近：' + st.recent.map(function (x) {
+        return x.outcome === 'wrong' ? (x.timeout ? '超时' : '没答对') : secs(x.rt) + ' 秒开始' + (x.outcome === 'fast' ? '' : '（慢）');
+      }).join('、');
+      tipEl.appendChild(r);
+    }
+    var rect = cell.getBoundingClientRect();
+    tipEl.style.display = 'block';
+    var left = rect.left + window.scrollX;
+    var maxLeft = window.scrollX + document.documentElement.clientWidth - tipEl.offsetWidth - 12;
+    tipEl.style.left = Math.max(8, Math.min(left, maxLeft)) + 'px';
+    tipEl.style.top = (rect.bottom + window.scrollY + 8) + 'px';
+  }
+  function hideCellTip() { tipEl.style.display = 'none'; }
+
+  /* ---------- 老师：设置 ---------- */
+  function renderOptions() {
+    var s = E.normalizeSettings(Store.settings);
+    var ctx = Store.ctx();
+    var levelFields = E.MODULES.map(function (m) {
+      var sum = E.moduleSummary(m.id, ctx);
+      var opts = '<option value="">保持系统判定（' + (sum.needsPlacement ? '还没定级' : '现在是等级 ' + sum.level) + '）</option>' +
+        m.levels.map(function (lv) { return '<option value="' + lv.n + '">改为等级 ' + lv.n + ' · ' + esc(lv.label) + '</option>'; }).join('');
+      return '<div class="field"><label for="opt-level-' + m.id + '">' + esc(m.name) + '的等级</label>' +
+        '<select id="opt-level-' + m.id + '">' + opts + '</select>' +
+        '<span class="help">改了之后，他下一次练习就从这个等级开始；之后照常自动升降级。</span></div>';
+    }).join('');
+    mainEl.innerHTML = previewBanner() +
+      '<section><h1>设置</h1><p class="sub">只有你的链接能看到这一页。改动对他下一次练习生效。</p></section>' +
+      '<section class="panel"><form class="form" id="optform">' +
+      numField('opt-len', '每次题数', s.sessionLength, 5, 100, 1, '固定题数，答错的重问也算在里面。') +
+      numField('opt-fast', '又快又准的标准（秒）', s.fastMs / 1000, 1, 10, 0.5, '题目出现后这么多秒内开始输入最终答案并且答对，同时在这个时间再加 2 秒之内按了回车，算又快又准。改一位手误来得及。') +
+      numField('opt-new', '每次最多加几道新题', s.newPerSession, 1, 20, 1, '刚升级时新题分批加入，免得一下子太难。') +
+      numField('opt-timeout', '超时（秒）', s.timeoutMs / 1000, 3, 60, 1, '超过这个时间没答，就显示答案、记为不会。') +
+      numField('opt-streak', '连续几次算掌握', s.masteryStreak, 1, 10, 1, '一道题连续这么多次又快又准，才算已掌握。') +
+      levelFields +
+      '<div class="row"><button type="submit" class="btn primary">保存</button><span id="optmsg" aria-live="polite"></span></div>' +
+      '</form></section>';
+  }
+  function numField(id, label, val, min, max, step, help) {
+    return '<div class="field"><label for="' + id + '">' + esc(label) + '</label>' +
+      '<input id="' + id + '" type="number" min="' + min + '" max="' + max + '" step="' + step + '" value="' + val + '">' +
+      '<span class="help">' + esc(help) + '</span></div>';
+  }
+  function saveOptions(e) {
+    e.preventDefault();
+    var cur = E.normalizeSettings(Store.settings);
+    var next = {
+      sessionLength: Number(document.getElementById('opt-len').value) || cur.sessionLength,
+      fastMs: Math.round((Number(document.getElementById('opt-fast').value) || cur.fastMs / 1000) * 1000),
+      timeoutMs: Math.round((Number(document.getElementById('opt-timeout').value) || cur.timeoutMs / 1000) * 1000),
+      masteryStreak: Number(document.getElementById('opt-streak').value) || cur.masteryStreak,
+      newPerSession: Number(document.getElementById('opt-new').value) || cur.newPerSession,
+      levelOverride: JSON.parse(JSON.stringify(cur.levelOverride || {}))
+    };
+    E.MODULES.forEach(function (m) {
+      var v = document.getElementById('opt-level-' + m.id).value;
+      if (v) next.levelOverride[m.id] = { level: Number(v), at: new Date().toISOString() };
+    });
+    var msg = document.getElementById('optmsg');
+    msg.className = ''; msg.textContent = '正在保存…';
+    Store.saveSettings(next, teacherKey).then(function () {
+      renderOptions();
+      var m2 = document.getElementById('optmsg'); m2.className = 'saved'; m2.textContent = '已保存';
+    }).catch(function (err) {
+      msg.className = 'err'; msg.textContent = '没保存上：' + err.message + '。检查网络后再点一次保存。';
+    });
+  }
+
+  /* ---------- 老师：数据 ---------- */
+  function renderData() {
+    var recent = Store.trials.filter(function (t) { return !t.retry; }).slice()
+      .sort(function (a, b) { return a.ts_iso < b.ts_iso ? 1 : -1; }).slice(0, 40);
+    var s = E.normalizeSettings(Store.settings);
+    var rows = recent.map(function (t) {
+      var o = E.outcome(t, s);
+      var res = o === 'fast' ? '又快又准' : o === 'slow' ? '会但慢' : t.timeout ? '超时' : '没答对';
+      return '<tr><td>' + esc(shortTime(t.local_time, t.ts_iso)) + '</td><td class="n">' + esc(t.prompt) + '</td><td class="n">' + esc(t.answer) + '</td>' +
+        '<td class="n">' + esc(t.response || '–') + '</td><td>' + res + '</td><td class="n">' + secs(t.rt_first_key_ms) + '</td><td class="n">' + secs(t.rt_submit_ms) + '</td></tr>';
+    }).join('');
+    var local = Store.mode === 'local'
+      ? '<section class="panel"><h2>预览用</h2><p class="muted">只在预览模式出现，部署后这一块会隐藏。</p><div class="row">' +
+        '<button type="button" class="btn" id="demo">填入两周示例数据</button>' +
+        '<button type="button" class="btn ghost" id="wipe">清空本机数据</button></div></section>'
+      : '';
+    mainEl.innerHTML = previewBanner() +
+      '<section><h1>数据</h1><p class="sub">导出的 CSV 每行是一次作答，包含时间、题目、他的答案、对错、开始输入用时（rt_first_key_ms）和按回车用时（rt_submit_ms），单位毫秒。</p></section>' +
+      '<section class="panel"><h2>导出</h2><div class="row">' +
+      '<button type="button" class="btn primary" id="dl-trials">下载全部作答（CSV）</button>' +
+      '<button type="button" class="btn" id="dl-sessions">下载练习记录（CSV）</button>' +
+      '<button type="button" class="btn ghost" id="cp-trials">复制全部作答</button>' +
+      '<span id="dlmsg" class="muted" aria-live="polite"></span></div><div id="copyhost"></div></section>' +
+      local +
+      '<section class="panel"><h2>最近 40 次作答</h2><p class="muted">不含错题重问。用时单位：秒。</p>' +
+      '<div class="tablewrap"><table><thead><tr><th>时间（学生当地）</th><th>题目</th><th>正确答案</th><th>他的答案</th><th>结果</th><th>开始输入</th><th>按回车</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="7" class="muted">还没有作答记录</td></tr>') + '</tbody></table></div></section>';
+  }
+
+  function toCSV(rows, cols) {
+    var q = function (v) { v = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    return '﻿' + cols.join(',') + '\n' + rows.map(function (r) { return cols.map(function (c) { return q(r[c]); }).join(','); }).join('\n') + '\n';
+  }
+  function download(name, text) {
+    try {
+      var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      return true;
+    } catch (e) { return false; }
+  }
+  function doExport(kind, copy) {
+    var msg = document.getElementById('dlmsg');
+    msg.textContent = '正在准备…';
+    Store.exportAll(teacherKey).then(function (d) {
+      var stamp = localInfo().local.slice(0, 10);
+      var text = kind === 'trials' ? toCSV(d.trials, TRIAL_COLS) : toCSV(d.sessions, SESSION_COLS);
+      if (copy) {
+        var host = document.getElementById('copyhost');
+        host.innerHTML = '<textarea class="copybox" readonly></textarea>';
+        var ta = host.querySelector('textarea');
+        ta.value = text.replace(/^﻿/, '');
+        ta.select();
+        var done = function () { msg.textContent = '已复制，可以粘贴到表格里'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, function () { msg.textContent = '已选中，按 Ctrl+C 复制'; });
+        else msg.textContent = '已选中，按 Ctrl+C 复制';
+      } else {
+        download((kind === 'trials' ? '作答记录_' : '练习记录_') + stamp + '.csv', text);
+        msg.textContent = '已开始下载。如果没有反应，用"复制全部作答"。';
+      }
+    }).catch(function (err) { msg.textContent = '导出失败：' + err.message; });
+  }
+
+  function fillDemo() {
+    var start = new Date(Date.now() - 14 * 864e5);
+    start.setUTCHours(10, 0, 0, 0);
+    var sim = E.simulate({ seed: Math.floor(Math.random() * 1e6), days: 14, startIso: start.toISOString(), items: BANK });
+    Store.sessions = sim.sessions.map(E.normalizeSession);
+    Store.trials = sim.trials.map(E.normalizeTrial);
+    Store.persist();
+    progMod = 'mult';
+    go('progress');
+  }
+
+  /* ---------- 事件 ---------- */
+  function onClick(e) {
+    var t = e.target.closest('button');
+    if (!t) return;
+    if (t.hasAttribute('data-start')) { startPractice(t.getAttribute('data-start')); return; }
+    if (t.hasAttribute('data-mod') && (view === 'progress' || t.hasAttribute('data-go'))) progMod = t.getAttribute('data-mod');
+    if (t.hasAttribute('data-go')) { go(t.getAttribute('data-go')); return; }
+    if (t.hasAttribute('data-mod') && view === 'progress') { render(); return; }
+    if (t.id === 'quit') {
+      if (t.classList.contains('armed')) { quit(); return; }
+      t.classList.add('armed'); t.textContent = '确定结束？';
+      setTimeout(function () { if (t.isConnected) { t.classList.remove('armed'); t.textContent = '结束'; } }, 3000);
+      return;
+    }
+    if (t.id === 'demo') { fillDemo(); return; }
+    if (t.id === 'wipe') {
+      if (t.classList.contains('armed')) { Store.sessions = []; Store.trials = []; Store.settings = {}; Store.persist(); go('home'); return; }
+      t.classList.add('armed'); t.textContent = '再点一次确认清空';
+      return;
+    }
+    if (t.id === 'dl-trials') doExport('trials', false);
+    if (t.id === 'dl-sessions') doExport('sessions', false);
+    if (t.id === 'cp-trials') doExport('trials', true);
+  }
+
+  function boot() {
+    appEl = document.getElementById('app');
+    appEl.innerHTML =
+      '<header class="top" id="topnav"><div class="brand">秒答训练<small>看到就答</small></div><nav class="nav" aria-label="页面"></nav></header>' +
+      '<main id="main"></main><div class="tip" id="celltip" role="tooltip"></div>';
+    navEl = document.getElementById('topnav');
+    mainEl = document.getElementById('main');
+    tipEl = document.getElementById('celltip');
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('click', onClick);
+    document.addEventListener('submit', function (e) { if (e.target.id === 'optform') saveOptions(e); });
+    document.addEventListener('pointerover', function (e) { var c = e.target.closest && e.target.closest('.cell'); if (c) showCellTip(c); });
+    document.addEventListener('pointerout', function (e) { var c = e.target.closest && e.target.closest('.cell'); if (c) hideCellTip(); });
+    document.addEventListener('focusin', function (e) { if (e.target.classList && e.target.classList.contains('cell')) showCellTip(e.target); });
+    document.addEventListener('focusout', function (e) { if (e.target.classList && e.target.classList.contains('cell')) hideCellTip(); });
+    window.addEventListener('online', function () { Store.flush(); });
+    var resizeT;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeT);
+      resizeT = setTimeout(function () { if (view === 'progress') render(); }, 200);
+    });
+
+    Store.loadCache();
+    recoverInProgress();
+    if (Store.mode === 'local') isTeacher = true;
+    render();
+
+    if (Store.mode === 'cloud') {
+      var params = new URLSearchParams(location.search);
+      var k = params.get('teacher') || ssGet(SS_TEACHER);
+      var checks = [Store.pull()];
+      if (k) {
+        checks.push(apiPost({ action: 'checkKey', key: k }).then(function (r) {
+          if (r && r.ok) { isTeacher = true; teacherKey = k; ssSet(SS_TEACHER, k); }
+        }).catch(function () { /* 离线时先不显示老师页 */ }));
+      }
+      Promise.all(checks).then(function () { if (view !== 'practice') render(); });
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+
+</script>
+</body>
+</html>
