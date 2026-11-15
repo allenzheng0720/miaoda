@@ -278,6 +278,31 @@ main.is-practice { max-width: none; padding: 0; display: block; }
 .fact-chip.stuck-slow { box-shadow: inset 3px 0 0 var(--st-slow); }
 .fact-chip.stuck-near { box-shadow: inset 3px 0 0 var(--st-near); }
 
+/* 去括号：二选一 */
+.eq.expr { font-size: clamp(36px, 5vw, 64px); flex-wrap: wrap; justify-content: center; row-gap: 0.1em; }
+.eq.expr .ans { min-width: 1em; }
+.ans.qmark { color: var(--muted); border-bottom-color: transparent; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: min(760px, 92vw); }
+.opt {
+  display: grid; gap: 6px; justify-items: center; padding: 18px 16px 20px; cursor: pointer;
+  border: 2px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink);
+}
+.opt:hover:not(:disabled) { border-color: var(--accent); }
+.opt .k { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+.opt .v { font-family: var(--font-display); font-size: clamp(26px, 3.4vw, 40px); font-weight: 500; font-variant-numeric: tabular-nums; }
+.opt:disabled { cursor: default; }
+.opt.is-ok { border-color: var(--good); background: var(--good-wash); }
+.opt.is-ok .k { color: var(--good); font-weight: 600; }
+.opt.is-right { border-color: var(--accent); background: var(--accent-wash); }
+.opt.is-right .k { color: var(--accent-ink); font-weight: 600; }
+.opt.is-yours { opacity: 0.75; }
+.opt.dim { opacity: 0.4; }
+.paren-blocks { display: grid; gap: 16px; }
+.grid-paren { display: flex; flex-wrap: wrap; gap: 4px; }
+.grid-paren .cell { height: 44px; padding: 0 14px; min-width: 120px; font-size: 15px; }
+.form h2 { font-size: 16px; margin-top: 8px; }
+@media (max-width: 560px) { .opts { grid-template-columns: 1fr; } }
+
 </style>
 </head>
 <body>
@@ -291,7 +316,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
 (function (root) {
   'use strict';
 
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '1.3.0';
 
   var DEFAULT_SETTINGS = {
     sessionLength: 30,     // 每次题数
@@ -308,7 +333,8 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     maxRepeats: 3,         // 一次练习里同一道题最多计划出现几次（不含错题重问）
     maxFamily: 3,          // 同组题（7×8 和 8×7、13² 和 √169）一次练习里合计最多几次
     maxRetries: 2,         // 一次练习里同一道题最多重问几次
-    levelOverride: {}      // 老师手动调级 { mult: { level: 2, at: ISO } }
+    levelOverride: {},     // 老师手动调级 { mult: { level: 2, at: ISO } }
+    moduleSettings: {}     // 老师按模块改的参数 { paren: { fastMs: 6000 } }
   };
 
   var MODULES = [
@@ -329,8 +355,96 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         { n: 2, label: '11–15' },
         { n: 3, label: '16–20 和 25' }
       ]
+    },
+    {
+      id: 'paren', name: '去括号', short: '括号', kind: 'choice',
+      // 二选一要先读式子，标准放宽；能蒙对一半，所以连续 4 次才算掌握；每次的数字和字母都不同，同一题型可以多出几次
+      defaults: { fastMs: 5000, timeoutMs: 15000, masteryStreak: 4, sessionLength: 20, maxRepeats: 5, maxFamily: 5 },
+      levels: [
+        { n: 1, label: '只有负号' },
+        { n: 2, label: '前面有数' },
+        { n: 3, label: '三项、系数、平方' },
+        { n: 4, label: '负数乘进括号' }
+      ]
     }
   ];
+
+  /* 某个模块实际用的参数：全局设置 → 模块默认 → 老师给这个模块改的值 */
+  var MODULE_KEYS = ['fastMs', 'timeoutMs', 'masteryStreak', 'sessionLength', 'maxRepeats', 'maxFamily', 'newPerSession'];
+  function forModule(s, moduleId) {
+    var mod = moduleById(moduleId);
+    if (!mod || (!mod.defaults && !(s.moduleSettings && s.moduleSettings[moduleId]))) return s;
+    var out = {}, k;
+    for (k in s) out[k] = s[k];
+    if (mod.defaults) for (k in mod.defaults) out[k] = mod.defaults[k];
+    var own = s.moduleSettings && s.moduleSettings[moduleId];
+    if (own) MODULE_KEYS.forEach(function (key) {
+      if (own[key] !== undefined && own[key] !== '' && !isNaN(Number(own[key]))) out[key] = Number(own[key]);
+    });
+    return out;
+  }
+
+  /* ---------- 去括号：题型模板，每次出题随机换字母和数字 ---------- */
+  var MINUS = '\u2212';
+  var LETTERS = ['x'];   // 未知数只用 x
+  var RULES = {
+    minus: '括号前是「−」，去括号时括号里的每一项都要变号。',
+    plus: '括号前是「+」，去括号时括号里的各项都不变号。',
+    coef: '括号前是负数，要乘括号里的每一项，每一项都要变号。',
+    combine: '先去括号（括号里每一项都变号），再合并同类项。'
+  };
+  function sub(a, b) { return a + ' ' + MINUS + ' ' + b; }
+  function add(a, b) { return a + ' + ' + b; }
+  function neg(a) { return MINUS + a; }
+  var PAREN_TEMPLATES = [
+    // 每道式子只有一个字母 X；m、n、k、c 都是数字
+    // 第 1 级：只有负号
+    { id: 'p1', level: 1, rule: 'minus', f: function (v) { return [neg('(' + add(v.X, v.n) + ')'), sub(neg(v.X), v.n), add(neg(v.X), v.n)]; } },
+    { id: 'p2', level: 1, rule: 'minus', f: function (v) { return [neg('(' + sub(v.X, v.n) + ')'), add(neg(v.X), v.n), sub(neg(v.X), v.n)]; } },
+    { id: 'p3', level: 1, rule: 'minus', f: function (v) { return [neg('(' + sub(v.n, v.X) + ')'), add(neg(v.n), v.X), sub(neg(v.n), v.X)]; } },
+    { id: 'p4', level: 1, rule: 'minus', f: function (v) { return [neg('(' + add(neg(v.X), v.n) + ')'), sub(v.X, v.n), add(v.X, v.n)]; } },
+    { id: 'p5', level: 1, rule: 'minus', f: function (v) { return [neg('(' + sub(neg(v.X), v.n) + ')'), add(v.X, v.n), sub(v.X, v.n)]; } },
+    // 第 2 级：前面有数；p9 是对照题（加号不变号）
+    { id: 'p6', level: 2, rule: 'minus', f: function (v) { return [sub(v.m, '(' + add(v.X, v.n) + ')'), sub(sub(v.m, v.X), v.n), add(sub(v.m, v.X), v.n)]; } },
+    { id: 'p7', level: 2, rule: 'minus', f: function (v) { return [sub(v.m, '(' + sub(v.X, v.n) + ')'), add(sub(v.m, v.X), v.n), sub(sub(v.m, v.X), v.n)]; } },
+    { id: 'p8', level: 2, rule: 'minus', f: function (v) { return [sub(v.m, '(' + sub(v.n, v.X) + ')'), add(sub(v.m, v.n), v.X), sub(sub(v.m, v.n), v.X)]; } },
+    { id: 'p9', level: 2, rule: 'plus', f: function (v) { return [add(v.m, '(' + sub(v.X, v.n) + ')'), sub(add(v.m, v.X), v.n), add(sub(v.m, v.X), v.n)]; } },
+    // 第 3 级：三项、系数、平方
+    { id: 'p10', level: 3, rule: 'minus', f: function (v) { return [neg('(' + add(sub(v.X + '²', v.k + v.X), v.n) + ')'), sub(add(neg(v.X + '²'), v.k + v.X), v.n), add(sub(neg(v.X + '²'), v.k + v.X), v.n)]; } },
+    { id: 'p11', level: 3, rule: 'minus', f: function (v) { return [neg('(' + sub(v.k + v.X, v.n) + ')'), add(neg(v.k + v.X), v.n), sub(neg(v.k + v.X), v.n)]; } },
+    { id: 'p12', level: 3, rule: 'minus', f: function (v) { return [sub(v.m, '(' + add(neg(v.X), v.n) + ')'), sub(add(v.m, v.X), v.n), add(add(v.m, v.X), v.n)]; } },
+    { id: 'p13', level: 3, rule: 'minus', f: function (v) { return [neg('(' + sub(v.X + '²', v.n) + ')'), add(neg(v.X + '²'), v.n), sub(neg(v.X + '²'), v.n)]; } },
+    // 第 4 级：负数乘进括号、去括号后合并
+    { id: 'p14', level: 4, rule: 'coef', f: function (v) { return [neg(v.k + '(' + add(v.X, v.n) + ')'), sub(neg(v.k + v.X), v.k * v.n), add(neg(v.k + v.X), v.k * v.n)]; } },
+    { id: 'p15', level: 4, rule: 'coef', f: function (v) { return [neg(v.k + '(' + sub(v.X, v.n) + ')'), add(neg(v.k + v.X), v.k * v.n), sub(neg(v.k + v.X), v.k * v.n)]; } },
+    { id: 'p16', level: 4, rule: 'coef', f: function (v) { return [sub(v.m, v.k + '(' + sub(v.X, v.n) + ')'), add(sub(v.m, v.k + v.X), v.k * v.n), sub(sub(v.m, v.k + v.X), v.k * v.n)]; } },
+    { id: 'p17', level: 4, rule: 'combine', f: function (v) { return [sub(v.c + v.X, '(' + sub(v.X, v.n) + ')'), add((v.c - 1) + v.X, v.n), sub((v.c - 1) + v.X, v.n)]; } }
+  ];
+  var PAREN_EXAMPLE = { X: 'x', n: 3, m: 8, k: 2, c: 5 };
+  var PAREN_EXAMPLE_BY = { p14: { k: 3, n: 2 }, p15: { k: 3, n: 2 }, p16: { k: 3, n: 2 }, p17: { n: 2 } };
+
+  function randInt(rng, lo, hi) { return lo + Math.floor(rng() * (hi - lo + 1)); }
+  function parenValues(rng) {
+    var X = LETTERS[randInt(rng, 0, LETTERS.length - 1)];
+    var n = randInt(rng, 2, 9), m;
+    do { m = randInt(rng, 5, 12); } while (m === n);
+    return { X: X, n: n, m: m, k: randInt(rng, 2, 6), c: randInt(rng, 3, 7) };
+  }
+  function makeParenItem(t) {
+    var ex = {}, k;
+    for (k in PAREN_EXAMPLE) ex[k] = PAREN_EXAMPLE[k];
+    var over = PAREN_EXAMPLE_BY[t.id] || {};
+    for (k in over) ex[k] = over[k];
+    var e = t.f(ex);
+    return {
+      id: t.id, module: 'paren', kind: 'choice', level: t.level, rule: t.rule, family: t.id,
+      prompt: e[0], answer: e[1], wrong: e[2], explain: RULES[t.rule],
+      gen: function (rng) {
+        var r = t.f(parenValues(rng));
+        return { prompt: r[0], correct: r[1], wrong: r[2], explain: RULES[t.rule] };
+      }
+    };
+  }
 
   function moduleById(id) {
     for (var i = 0; i < MODULES.length; i++) if (MODULES[i].id === id) return MODULES[i];
@@ -363,6 +477,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
       items.push({ id: 'r' + n, module: 'sq', kind: 'root', level: level, n: n,
         prompt: '√' + (n * n), answer: String(n), family: 'q' + n });
     });
+    PAREN_TEMPLATES.forEach(function (t) { items.push(makeParenItem(t)); });
     return items;
   }
 
@@ -373,7 +488,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     if (s) {
       for (k in s) {
         if (!(k in DEFAULT_SETTINGS)) continue;
-        if (k === 'levelOverride') out[k] = (s[k] && typeof s[k] === 'object') ? s[k] : {};
+        if (k === 'levelOverride' || k === 'moduleSettings') out[k] = (s[k] && typeof s[k] === 'object') ? s[k] : {};
         else if (s[k] !== '' && s[k] !== null && !isNaN(Number(s[k]))) out[k] = Number(s[k]);
       }
     }
@@ -425,6 +540,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
    * 又快又准 = 答对 + 3 秒内开始输入最终答案 + 开始后不久就按了回车（默认总共不超过 5 秒）
    * 打对了但没按回车就超时：算会但慢 */
   function outcome(t, s) {
+    s = forModule(s, t.module);
     if (!t.correct) return 'wrong';
     if (t.timeout) return 'slow';
     return judgedRt(t) <= s.fastMs && t.rt_submit_ms <= s.fastMs + s.typingMs ? 'fast' : 'slow';
@@ -472,7 +588,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   function computeStatuses(items, trials, s) {
     var idx = indexAttempts(trials);
     var out = {};
-    items.forEach(function (it) { out[it.id] = itemStatus(idx[it.id], s); });
+    items.forEach(function (it) { out[it.id] = itemStatus(idx[it.id], forModule(s, it.module)); });
     return out;
   }
 
@@ -656,13 +772,14 @@ main.is-practice { max-width: none; padding: 0; display: block; }
 
   /* ---------- 一次练习的运行状态 ---------- */
   function createRun(moduleId, ctx, rng, nowIso) {
+    var ms = forModule(ctx.settings, moduleId);
     var lv = currentLevel(moduleId, ctx.sessions, ctx.settings);
     var type = lv.needsPlacement ? 'placement' : 'practice';
     var level = lv.needsPlacement ? null : lv.level;
     var nowMs = Date.parse(nowIso);
     var plan = lv.needsPlacement
-      ? planPlacement(moduleId, ctx.items, ctx.settings, rng)
-      : planPractice(moduleId, level, ctx.items, ctx.statuses, ctx.trials || [], ctx.settings, rng, nowMs);
+      ? planPlacement(moduleId, ctx.items, ms, rng)
+      : planPractice(moduleId, level, ctx.items, ctx.statuses, ctx.trials || [], ms, rng, nowMs);
     return {
       session_id: makeId(nowIso, rng), module: moduleId, type: type, level_before: level,
       start_iso: null, plan: plan, idx: 0, trials: [], retriesBy: {}, stoppedEarly: false
@@ -701,6 +818,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   /* 记下一题；练习时答错，就在 3–5 题之后再问一次（替换掉那个位置原来的题，总题数和其他重问的位置都不变）。
    * 返回是否安排了重问 */
   function recordAnswer(run, trial, rng, s) {
+    s = forModule(s, run.module);
     run.trials.push(trial);
     var cur = run.plan[run.idx];
     var scheduled = false;
@@ -783,11 +901,11 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   }
 
   function finalize(run, ctx, nowIso, localInfo) {
-    var s = ctx.settings;
+    var s = forModule(ctx.settings, run.module);
     var stats = sessionStats(run.trials, s);
     var allTrials = ctx.trials.concat(run.trials);
     var before = ctx.statuses;
-    var after = computeStatuses(ctx.items, allTrials, s);
+    var after = computeStatuses(ctx.items, allTrials, ctx.settings);
     var modItems = ctx.items.filter(function (it) { return it.module === run.module; });
     var newly = modItems.filter(function (it) {
       return before[it.id].state !== 'mastered' && after[it.id].state === 'mastered';
@@ -893,12 +1011,13 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var strength = {};
     items.forEach(function (it) {
       var base = opts.base ? opts.base(it) : (it.module === 'mult' ? [0, 0.92, 0.75, 0.6, 0.5, 0.45][it.level]
+        : it.module === 'paren' ? [0, 0.4, 0.3, 0.2, 0.1][it.level]
         : [0, 0.8, 0.35, 0.2][it.level]) - (it.kind === 'root' ? 0.1 : 0);
       strength[it.id] = clamp(base + (rng() - 0.5) * 0.2, 0.05, 0.98);
     });
     var sessions = [], trials = [];
     var start = Date.parse(opts.startIso || '2026-10-26T10:00:00Z');
-    var modules = opts.modules || ['mult', 'sq'];
+    var modules = opts.modules || ['mult', 'sq', 'paren'];
     for (var d = 0; d < days; d++) {
       if (!opts.everyDay && rng() < 0.15) continue; // 偶尔有一天没练
       modules.forEach(function (mod, mi) {
@@ -914,19 +1033,23 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         while (run.idx < run.plan.length) {
           var cur = run.plan[run.idx];
           var st = strength[cur.item.id];
-          var correct = rng() < 0.45 + 0.55 * st;
-          var rt = Math.round(1100 + (1 - st) * 5200 + rng() * 900);
-          var timeout = rt > s.timeoutMs;
-          if (timeout) { rt = s.timeoutMs; correct = false; }
-          var startRt = timeout ? null : Math.round(rt * (0.55 + 0.25 * rng()));
+          var ms = forModule(s, mod);
+          var isChoice = cur.item.kind === 'choice';
+          var inst = isChoice ? cur.item.gen(rng) : null;
+          var correct = rng() < (isChoice ? 0.5 + 0.5 * st : 0.45 + 0.55 * st);
+          var rt = Math.round((isChoice ? 1800 + (1 - st) * 7000 : 1100 + (1 - st) * 5200) + rng() * 900);
+          var timeout = rt > ms.timeoutMs;
+          if (timeout) { rt = ms.timeoutMs; correct = false; }
+          var startRt = timeout ? null : isChoice ? rt : Math.round(rt * (0.55 + 0.25 * rng()));
           clock += rt + 1500;
           var ts = new Date(clock);
           var trial = {
             trial_id: run.session_id + '-' + run.idx, session_id: run.session_id, idx: run.idx,
             ts_iso: ts.toISOString(), local_time: localString(ts, tzOffset), tz: 'Asia/Tokyo',
             module: mod, phase: cur.check ? 'check' : run.type, level: cur.item.level, item_id: cur.item.id,
-            prompt: cur.item.prompt, answer: cur.item.answer,
-            response: correct ? cur.item.answer : timeout ? '' : String(Number(cur.item.answer) + (rng() < 0.5 ? -1 : 1) * (1 + Math.floor(rng() * 3))),
+            prompt: inst ? inst.prompt : cur.item.prompt, answer: inst ? inst.correct : cur.item.answer,
+            response: inst ? (timeout ? '' : correct ? inst.correct : inst.wrong)
+              : correct ? cur.item.answer : timeout ? '' : String(Number(cur.item.answer) + (rng() < 0.5 ? -1 : 1) * (1 + Math.floor(rng() * 3))),
             correct: correct ? 1 : 0, rt_first_key_ms: startRt, rt_submit_ms: rt,
             timeout: timeout ? 1 : 0, retry: cur.retry ? 1 : 0
           };
@@ -943,7 +1066,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   }
 
   var Engine = {
-    APP_VERSION: APP_VERSION, DEFAULT_SETTINGS: DEFAULT_SETTINGS, MODULES: MODULES,
+    APP_VERSION: APP_VERSION, DEFAULT_SETTINGS: DEFAULT_SETTINGS, MODULES: MODULES, forModule: forModule,
     moduleById: moduleById, buildBank: buildBank, normalizeSettings: normalizeSettings,
     normalizeTrial: normalizeTrial, normalizeSession: normalizeSession,
     judgedRt: judgedRt, outcome: outcome, itemStatus: itemStatus, computeStatuses: computeStatuses,
@@ -1012,11 +1135,13 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     return lv ? '等级 ' + n + '（' + lv.label + '）' : '';
   }
   function eqText(it) {
+    if (it.kind === 'choice') return it.prompt + ' = ' + it.answer;
     if (it.kind === 'mult') return it.a + ' × ' + it.b + ' = ' + it.answer;
     if (it.kind === 'square') return it.n + '² = ' + it.answer;
     return '√' + (it.n * it.n) + ' = ' + it.answer;
   }
   function qHTML(it) {
+    if (it.kind === 'choice') return esc(it.prompt);
     if (it.kind === 'mult') return '<span>' + it.a + '</span><span class="eqs">×</span><span>' + it.b + '</span>';
     if (it.kind === 'square') return '<span>' + it.n + '<sup>2</sup></span>';
     return '<span class="rad"><span class="rsign">√</span><span class="rnum">' + (it.n * it.n) + '</span></span>';
@@ -1187,8 +1312,8 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   /* ---------- 首页 ---------- */
   function renderHome() {
     var ctx = Store.ctx();
-    var n = ctx.settings.sessionLength;
     var cards = E.MODULES.map(function (m) {
+      var n = E.forModule(ctx.settings, m.id).sessionLength;
       var s = E.moduleSummary(m.id, ctx);
       var chip = s.needsPlacement ? '还没定级' : levelLabel(m.id, s.level);
       var last = s.last ? '上次练习：' + shortTime(s.last.local_start, s.last.start_iso) : '还没练过';
@@ -1200,7 +1325,8 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         goal = '<p class="goal">' + goal + '<span class="muted"> · 共 ' + m.levels.length + ' 级</span></p>';
       }
       var btn = s.needsPlacement ? '先做一次定级（' + n + ' 题）' : '开始练习（' + n + ' 题）';
-      var hint = s.needsPlacement ? '<p class="hint">第一次先看看哪些题已经很熟，再从合适的等级开始。</p>' : '';
+      var hint = s.needsPlacement ? '<p class="hint">第一次先看看哪些题已经很熟，再从合适的等级开始。</p>'
+        : m.kind === 'choice' ? '<p class="hint">两个式子选一个：去掉括号后哪个对？</p>' : '';
       return '<article class="mod-card">' +
         '<header><h2>' + esc(m.name) + '</h2><span class="chip">' + esc(chip) + '</span></header>' +
         '<div class="meter" role="img" aria-label="已掌握 ' + s.mastered + ' / ' + s.total + '"><div style="width:' + (100 * s.mastered / s.total).toFixed(1) + '%"></div></div>' +
@@ -1209,7 +1335,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         '</article>';
     }).join('');
     mainEl.innerHTML = previewBanner() +
-      '<section><h1>今天练哪个？</h1><p class="sub">看到题就直接说出答案，越快越好。每题答完都会显示正确答案。</p></section>' +
+      '<section><h1>今天练哪个？</h1><p class="sub">看到题就直接答，越快越好。每题答完都会显示正确答案。</p></section>' +
       '<div class="cards">' + cards + '</div>' +
       '<p class="sync" id="sync">' + esc(syncText()) + '</p>';
   }
@@ -1218,7 +1344,8 @@ main.is-practice { max-width: none; padding: 0; display: block; }
   function startPractice(mod) {
     var ctx = Store.ctx();
     var run = E.createRun(mod, ctx, Math.random, new Date().toISOString());
-    P = { run: run, ctx: ctx, phase: 'ask', typed: '', t0: null, tFirst: null, tLast: null, timer: null, fbTimer: null, fbUntil: 0 };
+    P = { run: run, ctx: ctx, ms: E.forModule(ctx.settings, mod), choice: E.moduleById(mod).kind === 'choice',
+      phase: 'ask', typed: '', t0: null, tFirst: null, tLast: null, timer: null, fbTimer: null, fbUntil: 0, inst: null, order: null };
     view = 'practice';
     render();
     ask();
@@ -1234,9 +1361,12 @@ main.is-practice { max-width: none; padding: 0; display: block; }
       '<span class="pcount" id="pcount"></span>' +
       '<button type="button" class="btn ghost" id="quit">结束</button></div>' +
       '<div class="stage">' +
-      '<div class="eq" id="eq" aria-live="off"><span id="q"></span><span class="eqs">=</span><span class="ans empty" id="ans"></span></div>' +
+      (P.choice
+        ? '<div class="eq expr" id="eq" aria-live="off"><span id="q"></span><span class="eqs">=</span><span class="ans qmark" id="ans">?</span></div>' +
+          '<div class="opts" id="opts"></div>'
+        : '<div class="eq" id="eq" aria-live="off"><span id="q"></span><span class="eqs">=</span><span class="ans empty" id="ans"></span></div>') +
       '<div class="fb" id="fb" aria-live="polite"></div>' +
-      '<p class="keyhint" id="keyhint">用键盘输入数字，按回车提交</p>' +
+      '<p class="keyhint" id="keyhint"></p>' +
       '</div></div>';
   }
 
@@ -1244,12 +1374,22 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var total = P.run.plan.length;
     document.getElementById('pcount').textContent = (P.run.idx + 1) + ' / ' + total;
     document.getElementById('pfill').style.width = (100 * P.run.idx / total) + '%';
-    document.getElementById('q').innerHTML = qHTML(cur.item);
     var eq = document.getElementById('eq');
     eq.classList.remove('is-ok', 'is-learn');
-    paintTyped();
     document.getElementById('fb').innerHTML = '';
-    document.getElementById('keyhint').textContent = '用键盘输入数字，按回车提交';
+    if (P.choice) {
+      document.getElementById('q').textContent = P.inst.prompt;
+      var a = document.getElementById('ans');
+      a.textContent = '?'; a.classList.add('qmark');
+      document.getElementById('opts').innerHTML = P.order.map(function (txt, i) {
+        return '<button type="button" class="opt" data-opt="' + i + '"><span class="k">按 ' + (i + 1) + '</span><span class="v">' + esc(txt) + '</span></button>';
+      }).join('');
+      document.getElementById('keyhint').textContent = '按 1 或 2 选择（也可以用 ← → 方向键，或者用鼠标点）';
+    } else {
+      document.getElementById('q').innerHTML = qHTML(cur.item);
+      paintTyped();
+      document.getElementById('keyhint').textContent = '用键盘输入数字，按回车提交';
+    }
   }
 
   function paintTyped() {
@@ -1262,32 +1402,45 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var cur = P.run.plan[P.run.idx];
     if (!cur) { finish(); return; }
     P.phase = 'ask'; P.typed = ''; P.t0 = null; P.tFirst = null; P.tLast = null;
+    if (P.choice) {
+      P.inst = cur.item.gen(Math.random);   // 每次换一组字母和数字
+      P.order = Math.random() < 0.5 ? [P.inst.correct, P.inst.wrong] : [P.inst.wrong, P.inst.correct];
+    }
     paintQuestion(cur);
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         if (!P || P.phase !== 'ask') return;
         P.t0 = performance.now();
         if (!P.run.start_iso) { P.run.start_iso = new Date().toISOString(); P.run.local_start = localInfo().local; }
-        P.timer = setTimeout(function () { submit(true); }, P.ctx.settings.timeoutMs);
+        P.timer = setTimeout(function () { submit(true); }, P.ms.timeoutMs);
       });
     });
   }
 
-  function submit(timedOut) {
+  function submit(timedOut, choiceIdx) {
     if (!P || P.phase !== 'ask' || P.t0 === null) return;
     clearTimeout(P.timer);
     var now = performance.now();
     var cur = P.run.plan[P.run.idx];
     var it = cur.item;
-    // 已经打对、只是没按回车就超时：记为答对 + 超时（算"会但慢"）
-    var correct = P.typed === it.answer;
-    var rtSubmit = timedOut ? P.ctx.settings.timeoutMs : Math.round(now - P.t0);
+    var rtSubmit = timedOut ? P.ms.timeoutMs : Math.round(now - P.t0);
+    var correct, prompt = it.prompt, answer = it.answer;
+    if (P.choice) {
+      P.typed = choiceIdx === undefined || choiceIdx === null ? '' : P.order[choiceIdx];
+      P.chosen = choiceIdx;
+      correct = !timedOut && P.typed === P.inst.correct;
+      prompt = P.inst.prompt; answer = P.inst.correct;
+      P.tFirst = timedOut ? null : now;
+    } else {
+      // 已经打对、只是没按回车就超时：记为答对 + 超时（算"会但慢"）
+      correct = P.typed === it.answer;
+    }
     var li = localInfo();
     var trial = {
       trial_id: P.run.session_id + '-' + P.run.idx, session_id: P.run.session_id, idx: P.run.idx,
       ts_iso: new Date().toISOString(), local_time: li.local, tz: li.tz,
       module: P.run.module, phase: cur.check ? 'check' : P.run.type, level: it.level, item_id: it.id,
-      prompt: it.prompt, answer: it.answer, response: P.typed,
+      prompt: prompt, answer: answer, response: P.typed,
       correct: correct ? 1 : 0,
       rt_first_key_ms: P.tFirst !== null ? Math.round(P.tFirst - P.t0) : null,
       rt_submit_ms: rtSubmit,
@@ -1306,10 +1459,11 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var fast = E.outcome(trial, P.ctx.settings) === 'fast';
     var eq = document.getElementById('eq');
     var a = document.getElementById('ans');
-    a.textContent = it.answer;
-    a.classList.remove('empty');
+    a.textContent = trial.answer;
+    a.classList.remove('empty', 'qmark');
     eq.classList.add(trial.correct ? 'is-ok' : 'is-learn');
     var fb = document.getElementById('fb');
+    if (P.choice) { choiceFeedback(trial, fast, inserted); return; }
     if (trial.correct) {
       fb.innerHTML = '<span class="fb-ok">✓ ' + esc(pick(fast ? PRAISE_FAST : PRAISE)) + '</span>' +
         (trial.timeout ? '<span class="fb-later">下次打完记得按回车</span>' : '');
@@ -1322,6 +1476,31 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         (inserted ? '<span class="fb-later">过几题再练一次</span>' : '');
       P.fbUntil = performance.now() + 1000;     // 自己看清楚再继续，不自动跳走
       document.getElementById('keyhint').textContent = '记住了就按回车继续';
+    }
+  }
+
+  /* 二选一的反馈：答对标绿；答错把正确的那个标出来，并给一句规则提示，等他看完按回车 */
+  function choiceFeedback(trial, fast, inserted) {
+    var opts = document.querySelectorAll('#opts .opt');
+    var right = P.order.indexOf(P.inst.correct);
+    opts.forEach(function (b, i) {
+      b.disabled = true;
+      if (i === right) b.classList.add(trial.correct ? 'is-ok' : 'is-right');
+      else b.classList.add(i === P.chosen ? 'is-yours' : 'dim');
+      var tag = i === right ? (trial.correct ? '✓ 对了' : '正确的是这个') : (i === P.chosen ? '你选的' : '');
+      b.querySelector('.k').textContent = tag || ' ';
+    });
+    var fb = document.getElementById('fb');
+    if (trial.correct) {
+      fb.innerHTML = '<span class="fb-ok">✓ ' + esc(pick(fast ? PRAISE_FAST : PRAISE)) + '</span>';
+      P.fbUntil = performance.now() + 250;
+      P.fbTimer = setTimeout(next, fast ? 900 : 1200);
+      document.getElementById('keyhint').textContent = '';
+    } else {
+      fb.innerHTML = '<span class="fb-learn">' + (trial.timeout ? '没关系，' : '') + esc(P.inst.explain) + '</span>' +
+        (inserted ? '<span class="fb-later">过几题换一组数字再练一次</span>' : '');
+      P.fbUntil = performance.now() + 1000;
+      document.getElementById('keyhint').textContent = '看清楚了就按回车继续';
     }
   }
 
@@ -1358,6 +1537,12 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var d = null;
     if (/^[0-9]$/.test(e.key)) d = e.key;
     else if (/^(Digit|Numpad)[0-9]$/.test(e.code || '')) d = e.code.slice(-1);
+    if (P.phase === 'ask' && P.choice) {
+      var pickIdx = d === '1' || e.key === 'ArrowLeft' ? 0 : d === '2' || e.key === 'ArrowRight' ? 1 : null;
+      if (pickIdx !== null) { e.preventDefault(); submit(false, pickIdx); }
+      else if (e.key === 'Enter' || e.key === ' ') e.preventDefault();
+      return;
+    }
     if (P.phase === 'ask') {
       if (d !== null) {
         e.preventDefault();
@@ -1397,8 +1582,8 @@ main.is-practice { max-width: none; padding: 0; display: block; }
       '<div><h1>' + (s.type === 'placement' ? '定级完成' : '完成 ' + st.n_items + ' 题') + '</h1><p class="lead">' + esc(lead) + '</p></div>' +
       '<div class="tiles">' +
       tile('正确率', pct(st.accuracy), '按每题第一次作答算') +
-      tile('又快又准', st.n_fast + '<small>题</small>', '答对，而且 ' + secs(P_settings().fastMs) + ' 秒内开始输入') +
-      tile('一般多快开始作答', secs(st.median_rt_ms) + '<small>秒</small>', '答对的题里，一半比这更快') +
+      tile('又快又准', st.n_fast + '<small>题</small>', '答对，而且 ' + secs(E.forModule(P_settings(), s.module).fastMs) + ' 秒内' + (m.kind === 'choice' ? '选出' : '开始输入')) +
+      tile(m.kind === 'choice' ? '一般多快选出' : '一般多快开始作答', secs(st.median_rt_ms) + '<small>秒</small>', '答对的题里，一半比这更快') +
       '</div>' + chips +
       '<div class="row"><button type="button" class="btn primary" data-start="' + s.module + '">再练一组' + esc(m.short) + '</button>' +
       '<button type="button" class="btn" data-go="progress" data-mod="' + s.module + '">看轨迹</button>' +
@@ -1425,7 +1610,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     }).join('') + '</div>';
     var tiles = '<div class="tiles">' +
       tile('当前等级', sum.needsPlacement ? '–' : sum.level + '<small>（共 ' + m.levels.length + ' 级）</small>', sum.needsPlacement ? '还没定级' : m.levels[sum.level - 1].label + (sum.progress.remaining ? '，再掌握 ' + sum.progress.remaining + ' 题升级' : '')) +
-      tile('已掌握', sum.mastered + '<small>/ ' + sum.total + '</small>', '连续 ' + ctx.settings.masteryStreak + ' 次又快又准') +
+      tile('已掌握', sum.mastered + '<small>/ ' + sum.total + '</small>', '连续 ' + E.forModule(ctx.settings, mod).masteryStreak + ' 次又快又准') +
       tile('完成练习', done.length + '<small>次</small>', all.length > done.length ? '另有 ' + (all.length - done.length) + ' 次没做完' : '') +
       tile('最近一次', sum.last ? esc(shortTime(sum.last.local_start, sum.last.start_iso)) : '–', sum.last && sum.last.tz ? esc(sum.last.tz) + ' 时间' : '') +
       '</div>';
@@ -1438,15 +1623,15 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         '<section class="panel"><div class="panel-head"><h2>每次练习的变化</h2><p>只算做完的练习，横轴是练习日期</p></div>' +
         '<div class="charts">' +
         '<figure class="chart"><figcaption>正确率<span>每题第一次作答</span></figcaption><div class="plot" id="c-acc"></div></figure>' +
-        '<figure class="chart"><figcaption>一般多快开始作答<span>答对题的中位数（秒）；横线是 ' + secs(ctx.settings.fastMs) + ' 秒标准</span></figcaption><div class="plot" id="c-rt"></div></figure>' +
+        '<figure class="chart"><figcaption>' + (m.kind === 'choice' ? '一般多快选出' : '一般多快开始作答') + '<span>答对题的中位数（秒）；横线是 ' + secs(E.forModule(ctx.settings, mod).fastMs) + ' 秒标准</span></figcaption><div class="plot" id="c-rt"></div></figure>' +
         '</div></section>' +
         stuckPanel(ctx, mod) +
         '<section class="panel"><div class="panel-head"><h2>掌握地图</h2><p>把鼠标放在格子上看最近 3 次作答</p></div>' +
-        legendHTML() + '<div class="mapwrap">' + (mod === 'mult' ? multMap(ctx, sum) : sqMap(ctx, sum)) + '</div></section>' +
+        legendHTML() + '<div class="mapwrap">' + (mod === 'mult' ? multMap(ctx, sum) : mod === 'sq' ? sqMap(ctx, sum) : parenMap(ctx, sum)) + '</div></section>' +
         '<section class="panel"><h2>练习记录</h2>' + recordsTable(all) + '</section>';
     }
     mainEl.innerHTML = previewBanner() + '<div class="panel-head"><h1>练习轨迹</h1>' + seg + '</div>' + tiles + body;
-    if (all.length) drawCharts(done, ctx.settings);
+    if (all.length) drawCharts(done, E.forModule(ctx.settings, mod));
   }
 
   function stuckPanel(ctx, mod) {
@@ -1501,6 +1686,15 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     }).join('') + '</div>';
   }
 
+  function parenMap(ctx, sum) {
+    var m = E.moduleById('paren');
+    return '<div class="paren-blocks">' + m.levels.map(function (lv) {
+      var its = BANK.filter(function (it) { return it.module === 'paren' && it.level === lv.n; });
+      return '<div class="sq-block"><h3>等级 ' + lv.n + ' · ' + esc(lv.label) + '</h3><div class="grid-paren">' +
+        its.map(function (it) { return cellHTML(it, ctx, sum, it.prompt); }).join('') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
   function recordsTable(all) {
     var rows = all.map(function (s) {
       var type = !s.complete ? '<span class="tag part">没做完</span>' : s.type === 'placement' ? '<span class="tag">定级</span>' : '<span class="tag">练习</span>';
@@ -1511,7 +1705,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
         '<td class="n">' + (s.n_items || 0) + '</td><td class="n">' + pct(s.accuracy) + '</td><td class="n">' + (s.n_fast || 0) + '</td>' +
         '<td class="n">' + secs(s.median_rt_ms) + '</td><td class="n">' + lv + '</td></tr>';
     }).join('');
-    return '<div class="tablewrap"><table><thead><tr><th>时间（学生当地）</th><th>类型</th><th>题数</th><th>正确率</th><th>又快又准</th><th>开始作答（秒）</th><th>等级</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    return '<div class="tablewrap"><table><thead><tr><th>时间（学生当地）</th><th>类型</th><th>题数</th><th>正确率</th><th>又快又准</th><th>开始作答 / 选出（秒）</th><th>等级</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
 
   /* 折线图：单一序列、一个纵轴、十字准线提示 */
@@ -1648,14 +1842,23 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     mainEl.innerHTML = previewBanner() +
       '<section><h1>设置</h1><p class="sub">只有你的链接能看到这一页。改动对他下一次练习生效。</p></section>' +
       '<section class="panel"><form class="form" id="optform">' +
+      '<h2>乘法表、平方与根号</h2>' +
       numField('opt-len', '每次题数', s.sessionLength, 5, 100, 1, '固定题数，答错的重问也算在里面。') +
       numField('opt-fast', '又快又准的标准（秒）', s.fastMs / 1000, 1, 10, 0.5, '题目出现后这么多秒内开始输入最终答案并且答对，同时在这个时间再加 2 秒之内按了回车，算又快又准。改一位手误来得及。') +
       numField('opt-new', '每次最多加几道新题', s.newPerSession, 1, 20, 1, '刚升级时新题分批加入，免得一下子太难。') +
       numField('opt-timeout', '超时（秒）', s.timeoutMs / 1000, 3, 60, 1, '超过这个时间没答，就显示答案、记为不会。') +
       numField('opt-streak', '连续几次算掌握', s.masteryStreak, 1, 10, 1, '一道题连续这么多次又快又准，才算已掌握。') +
-      levelFields +
+      '<h2>去括号</h2>' + parenFields(s) +
+      '<h2>等级</h2>' + levelFields +
       '<div class="row"><button type="submit" class="btn primary">保存</button><span id="optmsg" aria-live="polite"></span></div>' +
       '</form></section>';
+  }
+  function parenFields(s) {
+    var ps = E.forModule(s, 'paren');
+    return numField('opt-p-len', '每次题数', ps.sessionLength, 5, 100, 1, '二选一要先读式子，默认比乘法少一些。') +
+      numField('opt-p-fast', '又快又准的标准（秒）', ps.fastMs / 1000, 1, 20, 0.5, '题目出现后这么多秒内选对，算又快又准。') +
+      numField('opt-p-timeout', '超时（秒）', ps.timeoutMs / 1000, 3, 60, 1, '超过这个时间没选，就显示正确答案。') +
+      numField('opt-p-streak', '连续几次算掌握', ps.masteryStreak, 1, 10, 1, '二选一能蒙对一半，所以默认要连续 4 次。');
   }
   function numField(id, label, val, min, max, step, help) {
     return '<div class="field"><label for="' + id + '">' + esc(label) + '</label>' +
@@ -1671,7 +1874,14 @@ main.is-practice { max-width: none; padding: 0; display: block; }
       timeoutMs: Math.round((Number(document.getElementById('opt-timeout').value) || cur.timeoutMs / 1000) * 1000),
       masteryStreak: Number(document.getElementById('opt-streak').value) || cur.masteryStreak,
       newPerSession: Number(document.getElementById('opt-new').value) || cur.newPerSession,
-      levelOverride: JSON.parse(JSON.stringify(cur.levelOverride || {}))
+      levelOverride: JSON.parse(JSON.stringify(cur.levelOverride || {})),
+      moduleSettings: JSON.parse(JSON.stringify(cur.moduleSettings || {}))
+    };
+    next.moduleSettings.paren = {
+      sessionLength: Number(document.getElementById('opt-p-len').value) || undefined,
+      fastMs: Math.round(Number(document.getElementById('opt-p-fast').value) * 1000) || undefined,
+      timeoutMs: Math.round(Number(document.getElementById('opt-p-timeout').value) * 1000) || undefined,
+      masteryStreak: Number(document.getElementById('opt-p-streak').value) || undefined
     };
     E.MODULES.forEach(function (m) {
       var v = document.getElementById('opt-level-' + m.id).value;
@@ -1768,6 +1978,7 @@ main.is-practice { max-width: none; padding: 0; display: block; }
     var t = e.target.closest('button');
     if (!t) return;
     if (t.hasAttribute('data-start')) { startPractice(t.getAttribute('data-start')); return; }
+    if (t.hasAttribute('data-opt') && P && P.phase === 'ask') { submit(false, Number(t.getAttribute('data-opt'))); return; }
     if (t.hasAttribute('data-mod') && (view === 'progress' || t.hasAttribute('data-go'))) progMod = t.getAttribute('data-mod');
     if (t.hasAttribute('data-go')) { go(t.getAttribute('data-go')); return; }
     if (t.hasAttribute('data-mod') && view === 'progress') { render(); return; }
